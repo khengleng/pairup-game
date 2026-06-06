@@ -16,6 +16,9 @@ const loadAnalytics = () => {
 
   if (!endpoint || !websiteId) return;
   if (endpoint.includes("%VITE_") || websiteId.includes("%VITE_")) return;
+  if (endpoint.includes("your-") || websiteId.includes("your-")) return;
+  if (endpoint.includes("example.")) return;
+  if (!/^https?:\/\//.test(endpoint)) return;
 
   const script = document.createElement("script");
   script.defer = true;
