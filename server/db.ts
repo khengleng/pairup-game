@@ -1,6 +1,6 @@
-import { eq } from "drizzle-orm";
+import { eq, and, desc, asc, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
-import { InsertUser, users } from "../drizzle/schema";
+import { InsertUser, users, games, scores, leads, leaderboard } from "../drizzle/schema";
 import { ENV } from './_core/env';
 
 let _db: ReturnType<typeof drizzle> | null = null;
@@ -89,4 +89,163 @@ export async function getUserByOpenId(openId: string) {
   return result.length > 0 ? result[0] : undefined;
 }
 
-// TODO: add feature queries here as your schema grows.
+// Game-related queries
+export async function createGame(gameData: typeof games.$inferInsert) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  
+  const result = await db.insert(games).values(gameData);
+  return result;
+}
+
+export async function updateGameScore(gameId: number, moves: number, timeSeconds: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  
+  return await db.update(games)
+    .set({ moves, timeSeconds, completed: true })
+    .where(eq(games.id, gameId));
+}
+
+export async function getGameById(gameId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  
+  const result = await db.select().from(games).where(eq(games.id, gameId)).limit(1);
+  return result.length > 0 ? result[0] : null;
+}
+
+// Score-related queries
+export async function upsertScore(userId: number | undefined, theme: string, gridSize: string, moves: number, timeSeconds: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  
+  const totalScore = moves + timeSeconds;
+  
+  if (!userId) return null;
+
+  const existing = await db.select().from(scores)
+    .where(and(
+      eq(scores.userId, userId),
+      eq(scores.theme, theme as any),
+      eq(scores.gridSize, gridSize as any)
+    ))
+    .limit(1);
+
+  if (existing.length > 0) {
+    // Only update if new score is better
+    if (totalScore < existing[0].totalScore) {
+      return await db.update(scores)
+        .set({ bestMoves: moves, bestTimeSeconds: timeSeconds, totalScore })
+        .where(eq(scores.id, existing[0].id));
+    }
+    return existing[0];
+  } else {
+    return await db.insert(scores).values({
+      userId,
+      theme: theme as any,
+      gridSize: gridSize as any,
+      bestMoves: moves,
+      bestTimeSeconds: timeSeconds,
+      totalScore,
+    });
+  }
+}
+
+export async function getUserBestScore(userId: number, theme: string, gridSize: string) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  
+  const result = await db.select().from(scores)
+    .where(and(
+      eq(scores.userId, userId),
+      eq(scores.theme, theme as any),
+      eq(scores.gridSize, gridSize as any)
+    ))
+    .limit(1);
+
+  return result.length > 0 ? result[0] : null;
+}
+
+// Lead-related queries
+export async function createLead(leadData: typeof leads.$inferInsert) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  
+  return await db.insert(leads).values(leadData);
+}
+
+export async function getAllLeads() {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  
+  return await db.select().from(leads).orderBy(desc(leads.createdAt));
+}
+
+// Leaderboard queries
+export async function getLeaderboard(theme: string, gridSize: string, topN: number = 10) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  
+  return await db.select().from(leaderboard)
+    .where(and(
+      eq(leaderboard.theme, theme as any),
+      eq(leaderboard.gridSize, gridSize as any)
+    ))
+    .orderBy(asc(leaderboard.bestScore))
+    .limit(topN);
+}
+
+export async function updateLeaderboard(userId: number | undefined, playerName: string | undefined, theme: string, gridSize: string, moves: number, timeSeconds: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  
+  const totalScore = moves + timeSeconds;
+  
+  if (!userId) return null;
+
+  const existing = await db.select().from(leaderboard)
+    .where(and(
+      eq(leaderboard.userId, userId),
+      eq(leaderboard.theme, theme as any),
+      eq(leaderboard.gridSize, gridSize as any)
+    ))
+    .limit(1);
+
+  if (existing.length > 0) {
+    // Only update if new score is better
+    if (totalScore < existing[0].bestScore) {
+      return await db.update(leaderboard)
+        .set({ 
+          bestScore: totalScore, 
+          bestMoves: moves, 
+          bestTimeSeconds: timeSeconds,
+          gamesPlayed: (existing[0].gamesPlayed || 0) + 1
+        })
+        .where(eq(leaderboard.id, existing[0].id));
+    }
+  } else {
+    return await db.insert(leaderboard).values({
+      userId,
+      playerName: playerName || "Anonymous",
+      theme: theme as any,
+      gridSize: gridSize as any,
+      bestScore: totalScore,
+      bestMoves: moves,
+      bestTimeSeconds: timeSeconds,
+      gamesPlayed: 1,
+    });
+  }
+}
+
+// Helper to get all leaderboard entries for all themes/sizes
+export async function getAllLeaderboardEntries() {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  
+  return await db.select().from(leaderboard).orderBy(
+    leaderboard.theme,
+    leaderboard.gridSize,
+    asc(leaderboard.bestScore)
+  );
+}

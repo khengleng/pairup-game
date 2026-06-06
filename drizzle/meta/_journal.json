@@ -1,5 +1,20 @@
 {
   "version": "7",
   "dialect": "mysql",
-  "entries": []
+  "entries": [
+    {
+      "idx": 0,
+      "version": "5",
+      "when": 1780738737706,
+      "tag": "0000_typical_rockslide",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "5",
+      "when": 1780753880301,
+      "tag": "0001_closed_master_chief",
+      "breakpoints": true
+    }
+  ]
 }

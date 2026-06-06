@@ -1,10 +1,13 @@
 import { COOKIE_NAME } from "@shared/const";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { systemRouter } from "./_core/systemRouter";
-import { publicProcedure, router } from "./_core/trpc";
+import { publicProcedure, router, protectedProcedure } from "./_core/trpc";
+import { z } from "zod";
+import * as db from "./db";
+import { notifyOwner } from "./_core/notification";
+import { TRPCError } from "@trpc/server";
 
 export const appRouter = router({
-    // if you need to use socket.io, read and register route in server/_core/index.ts, all api should start with '/api/' so that the gateway can route correctly
   system: systemRouter,
   auth: router({
     me: publicProcedure.query(opts => opts.ctx.user),
@@ -17,12 +20,133 @@ export const appRouter = router({
     }),
   }),
 
-  // TODO: add feature routers here, e.g.
-  // todo: router({
-  //   list: protectedProcedure.query(({ ctx }) =>
-  //     db.getUserTodos(ctx.user.id)
-  //   ),
-  // }),
+  // Game procedures
+  game: router({
+    createGame: publicProcedure
+      .input(z.object({
+        theme: z.enum(["Products", "Features", "Team Members"]),
+        gridSize: z.enum(["4x4", "6x6", "8x8"]),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        const gameData = {
+          userId: ctx.user?.id,
+          theme: input.theme,
+          gridSize: input.gridSize,
+          moves: 0,
+          timeSeconds: 0,
+          completed: false,
+        };
+        
+        const result = await db.createGame(gameData);
+        return { gameId: (result as any).insertId || 0 };
+      }),
+
+    completeGame: publicProcedure
+      .input(z.object({
+        gameId: z.number(),
+        moves: z.number(),
+        timeSeconds: z.number(),
+      }))
+      .mutation(async ({ input, ctx }) => {
+        const game = await db.getGameById(input.gameId);
+        if (!game) throw new TRPCError({ code: "NOT_FOUND" });
+
+        await db.updateGameScore(input.gameId, input.moves, input.timeSeconds);
+
+        // Update user's best score if authenticated
+        if (ctx.user?.id) {
+          await db.upsertScore(ctx.user.id, game.theme, game.gridSize, input.moves, input.timeSeconds);
+          await db.updateLeaderboard(ctx.user.id, ctx.user.name || undefined, game.theme, game.gridSize, input.moves, input.timeSeconds);
+        }
+
+        return { success: true };
+      }),
+
+    getGame: publicProcedure
+      .input(z.number())
+      .query(async ({ input }) => {
+        return await db.getGameById(input);
+      }),
+  }),
+
+  // Score procedures
+  score: router({
+    getUserBest: publicProcedure
+      .input(z.object({
+        theme: z.enum(["Products", "Features", "Team Members"]),
+        gridSize: z.enum(["4x4", "6x6", "8x8"]),
+      }))
+      .query(async ({ input, ctx }) => {
+        if (!ctx.user?.id) return null;
+        return await db.getUserBestScore(ctx.user.id, input.theme, input.gridSize);
+      }),
+  }),
+
+  // Lead procedures
+  lead: router({
+    submit: publicProcedure
+      .input(z.object({
+        name: z.string().min(1).max(255),
+        email: z.string().email().max(320),
+        company: z.string().min(1).max(255),
+        gameId: z.number().optional(),
+        score: z.number().optional(),
+        theme: z.enum(["Products", "Features", "Team Members"]).optional(),
+        gridSize: z.enum(["4x4", "6x6", "8x8"]).optional(),
+      }))
+      .mutation(async ({ input }) => {
+        const leadData = {
+          name: input.name,
+          email: input.email,
+          company: input.company,
+          gameId: input.gameId,
+          score: input.score,
+          theme: input.theme,
+          gridSize: input.gridSize,
+        };
+
+        const result = await db.createLead(leadData);
+
+        // Notify owner of new lead
+        try {
+          await notifyOwner({
+            title: "🎮 New PairUp Lead Captured!",
+            content: `New player: ${input.name} from ${input.company} (${input.email})\nScore: ${input.score || "N/A"} | Theme: ${input.theme || "N/A"}`,
+          });
+        } catch (error) {
+          console.error("Failed to notify owner of new lead:", error);
+        }
+
+        return { success: true, leadId: (result as any).insertId || 0 };
+      }),
+
+    getAll: protectedProcedure
+      .query(async ({ ctx }) => {
+        // Only allow owner to view all leads
+        if (ctx.user.role !== "admin") {
+          throw new TRPCError({ code: "FORBIDDEN" });
+        }
+        return await db.getAllLeads();
+      }),
+  }),
+
+  // Leaderboard procedures
+  leaderboard: router({
+    getByThemeAndSize: publicProcedure
+      .input(z.object({
+        theme: z.enum(["Products", "Features", "Team Members"]),
+        gridSize: z.enum(["4x4", "6x6", "8x8"]),
+        limit: z.number().default(10),
+      }))
+      .query(async ({ input }) => {
+        return await db.getLeaderboard(input.theme, input.gridSize, input.limit);
+      }),
+
+    getAll: publicProcedure
+      .query(async () => {
+        return await db.getAllLeaderboardEntries();
+      }),
+  }),
 });
 
 export type AppRouter = typeof appRouter;
