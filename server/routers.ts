@@ -6,6 +6,34 @@ import { z } from "zod";
 import * as db from "./db";
 import { notifyOwner } from "./_core/notification";
 import { TRPCError } from "@trpc/server";
+import type { Game } from "../drizzle/schema";
+
+const guestGames = new Map<number, Game>();
+let nextGuestGameId = -1;
+
+function createGuestGame(gameData: Omit<Game, "id" | "createdAt">): Game {
+  const game: Game = {
+    ...gameData,
+    id: nextGuestGameId--,
+    createdAt: new Date(),
+  };
+  guestGames.set(game.id, game);
+  return game;
+}
+
+function updateGuestGameScore(gameId: number, moves: number, timeSeconds: number) {
+  const game = guestGames.get(gameId);
+  if (!game) return null;
+
+  const updated = {
+    ...game,
+    moves,
+    timeSeconds,
+    completed: true,
+  };
+  guestGames.set(gameId, updated);
+  return updated;
+}
 
 export const appRouter = router({
   system: systemRouter,
@@ -37,8 +65,16 @@ export const appRouter = router({
           completed: false,
         };
         
-        const result = await db.createGame(gameData);
-        return { gameId: (result as any).insertId || 0 };
+        try {
+          const result = await db.createGame(gameData);
+          return { gameId: (result as any).insertId || 0 };
+        } catch (error) {
+          if (ctx.user?.id) throw error;
+
+          console.error("Failed to create guest game in database; using in-memory fallback:", error);
+          const guestGame = createGuestGame(gameData);
+          return { gameId: guestGame.id };
+        }
       }),
 
     completeGame: publicProcedure
@@ -48,10 +84,16 @@ export const appRouter = router({
         timeSeconds: z.number(),
       }))
       .mutation(async ({ input, ctx }) => {
-        const game = await db.getGameById(input.gameId);
+        const game = input.gameId < 0
+          ? guestGames.get(input.gameId) ?? null
+          : await db.getGameById(input.gameId);
         if (!game) throw new TRPCError({ code: "NOT_FOUND" });
 
-        await db.updateGameScore(input.gameId, input.moves, input.timeSeconds);
+        if (input.gameId < 0) {
+          updateGuestGameScore(input.gameId, input.moves, input.timeSeconds);
+        } else {
+          await db.updateGameScore(input.gameId, input.moves, input.timeSeconds);
+        }
 
         // Update user's best score if authenticated
         if (ctx.user?.id) {
@@ -65,6 +107,7 @@ export const appRouter = router({
     getGame: publicProcedure
       .input(z.number())
       .query(async ({ input }) => {
+        if (input < 0) return guestGames.get(input) ?? null;
         return await db.getGameById(input);
       }),
   }),
