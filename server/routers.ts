@@ -29,7 +29,7 @@ export const appRouter = router({
       }))
       .mutation(async ({ input, ctx }) => {
         const gameData = {
-          userId: ctx.user?.id,
+          userId: ctx.user?.id ?? null,
           theme: input.theme,
           gridSize: input.gridSize,
           moves: 0,
