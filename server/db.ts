@@ -95,7 +95,22 @@ export async function createGame(gameData: typeof games.$inferInsert) {
   if (!db) throw new Error("Database not available");
   
   const result = await db.insert(games).values(gameData);
-  return result;
+  // Extract the inserted ID from the result
+  // Drizzle with MySQL returns an array-like result with insertId property
+  const insertId = (result as any)[0]?.insertId || (result as any).insertId;
+  if (!insertId) {
+    // If we can't get insertId, query for the most recent game by this user
+    if (gameData.userId) {
+      const recentGames = await db.select().from(games)
+        .where(eq(games.userId, gameData.userId))
+        .orderBy(desc(games.createdAt))
+        .limit(1);
+      return { insertId: recentGames[0]?.id || 0 };
+    }
+    // If no userId, return 0
+    return { insertId: 0 };
+  }
+  return { insertId };
 }
 
 export async function updateGameScore(gameId: number, moves: number, timeSeconds: number) {
