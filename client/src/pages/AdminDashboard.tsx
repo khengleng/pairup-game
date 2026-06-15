@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
+import { ArrowDown, ArrowUp, Lock, Power, PowerOff } from "lucide-react";
 
 export default function AdminDashboard() {
   const [, setLocation] = useLocation();
@@ -31,6 +32,26 @@ export default function AdminDashboard() {
     },
     onError: error => {
       toast.error(error.message || "Failed to add theme");
+    },
+  });
+  const setThemeEnabledMutation = trpc.gameConfig.setThemeEnabled.useMutation({
+    onSuccess: async () => {
+      await utils.gameConfig.getAllThemes.invalidate();
+      await utils.gameConfig.getThemes.invalidate();
+      toast.success("Theme updated");
+    },
+    onError: error => {
+      toast.error(error.message || "Failed to update theme");
+    },
+  });
+  const setThemeOrderMutation = trpc.gameConfig.setThemeOrder.useMutation({
+    onSuccess: async () => {
+      await utils.gameConfig.getAllThemes.invalidate();
+      await utils.gameConfig.getThemes.invalidate();
+      toast.success("Theme order updated");
+    },
+    onError: error => {
+      toast.error(error.message || "Failed to update theme order");
     },
   });
 
@@ -79,6 +100,42 @@ export default function AdminDashboard() {
       description: themeDescription,
       pairs: parsedPairs,
     });
+  };
+
+  const orderedThemes = themes ?? [];
+
+  const handleMoveTheme = async (index: number, direction: -1 | 1) => {
+    const theme = orderedThemes[index];
+    const targetTheme = orderedThemes[index + direction];
+    if (
+      !theme ||
+      !targetTheme ||
+      theme.source !== "database" ||
+      targetTheme.source !== "database" ||
+      !theme.databaseId ||
+      !targetTheme.databaseId
+    ) {
+      toast.error("Only admin-created themes can be arranged");
+      return;
+    }
+
+    const currentOrder = theme.sortOrder ?? index;
+    const targetOrder = targetTheme.sortOrder ?? index + direction;
+
+    await Promise.all([
+      setThemeOrderMutation.mutateAsync({
+        themeId: theme.databaseId,
+        sortOrder: targetOrder,
+      }),
+      setThemeOrderMutation.mutateAsync({
+        themeId: targetTheme.databaseId,
+        sortOrder: currentOrder,
+      }),
+    ]);
+  };
+
+  const handleToggleTheme = async (themeId: number, enabled: boolean) => {
+    await setThemeEnabledMutation.mutateAsync({ themeId, enabled });
   };
 
   // Redirect if not admin
@@ -171,31 +228,113 @@ export default function AdminDashboard() {
 
             {isLoadingThemes ? (
               <p className="text-sm text-gray-600">Loading themes...</p>
-            ) : themes && themes.length > 0 ? (
+            ) : orderedThemes.length > 0 ? (
               <div className="space-y-3">
-                {themes.map(theme => (
-                  <div
-                    key={`${theme.source}-${theme.id}`}
-                    className="border border-gray-200 rounded-lg p-4 bg-white"
-                  >
-                    <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <p className="font-semibold text-gray-900">
-                          {theme.name}
-                        </p>
-                        <p className="text-sm text-gray-600">
-                          {theme.description}
-                        </p>
+                {orderedThemes.map((theme, index) => {
+                  const canManage =
+                    theme.source === "database" && Boolean(theme.databaseId);
+                  const canMoveUp =
+                    canManage &&
+                    orderedThemes[index - 1]?.source === "database";
+                  const canMoveDown =
+                    canManage &&
+                    orderedThemes[index + 1]?.source === "database";
+
+                  return (
+                    <div
+                      key={`${theme.source}-${theme.id}`}
+                      className="border border-gray-200 rounded-lg p-4 bg-white"
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <p className="font-semibold text-gray-900">
+                            {theme.name}
+                          </p>
+                          <p className="text-sm text-gray-600">
+                            {theme.description}
+                          </p>
+                        </div>
+                        <span className="text-xs font-semibold px-2 py-1 rounded-full bg-purple-50 text-purple-700">
+                          {theme.source}
+                        </span>
                       </div>
-                      <span className="text-xs font-semibold px-2 py-1 rounded-full bg-purple-50 text-purple-700">
-                        {theme.source}
-                      </span>
+                      <div className="flex flex-wrap items-center justify-between gap-3 mt-3">
+                        <div className="flex flex-wrap items-center gap-2 text-xs text-gray-500">
+                          <span>{theme.pairs.length} card pairs</span>
+                          <span
+                            className={`font-semibold px-2 py-1 rounded-full ${
+                              theme.enabled
+                                ? "bg-green-50 text-green-700"
+                                : "bg-gray-100 text-gray-600"
+                            }`}
+                          >
+                            {theme.enabled ? "Active" : "Hidden"}
+                          </span>
+                        </div>
+
+                        <div className="flex items-center gap-2">
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="icon"
+                            disabled={
+                              !canMoveUp || setThemeOrderMutation.isPending
+                            }
+                            onClick={() => handleMoveTheme(index, -1)}
+                            title="Move up"
+                          >
+                            <ArrowUp className="w-4 h-4" />
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="icon"
+                            disabled={
+                              !canMoveDown || setThemeOrderMutation.isPending
+                            }
+                            onClick={() => handleMoveTheme(index, 1)}
+                            title="Move down"
+                          >
+                            <ArrowDown className="w-4 h-4" />
+                          </Button>
+                          {canManage && theme.databaseId ? (
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="icon"
+                              disabled={setThemeEnabledMutation.isPending}
+                              onClick={() =>
+                                handleToggleTheme(
+                                  theme.databaseId!,
+                                  !theme.enabled
+                                )
+                              }
+                              title={
+                                theme.enabled ? "Hide theme" : "Enable theme"
+                              }
+                            >
+                              {theme.enabled ? (
+                                <PowerOff className="w-4 h-4" />
+                              ) : (
+                                <Power className="w-4 h-4" />
+                              )}
+                            </Button>
+                          ) : (
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="icon"
+                              disabled
+                              title="Bundled theme"
+                            >
+                              <Lock className="w-4 h-4" />
+                            </Button>
+                          )}
+                        </div>
+                      </div>
                     </div>
-                    <p className="text-xs text-gray-500 mt-2">
-                      {theme.pairs.length} card pairs
-                    </p>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             ) : (
               <p className="text-sm text-gray-600">No themes configured yet</p>

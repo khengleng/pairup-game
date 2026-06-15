@@ -333,7 +333,9 @@ export async function getAllLeaderboardEntries() {
 }
 
 export type StoredGameTheme = GameTheme & {
+  databaseId: number;
   enabled: boolean;
+  sortOrder: number;
   source: "database";
 };
 
@@ -373,10 +375,12 @@ export async function getStoredGameThemes(
   }
 
   return visibleThemeRows.map(theme => ({
+    databaseId: theme.id,
     id: theme.slug,
     name: theme.name,
     description: theme.description,
     enabled: theme.enabled,
+    sortOrder: theme.sortOrder,
     source: "database",
     pairs: pairsByThemeId.get(theme.id) ?? [],
   }));
@@ -412,6 +416,32 @@ export async function createStoredGameTheme(
   );
 
   return { id: insertId, slug };
+}
+
+export async function updateStoredGameThemeEnabled(
+  themeId: number,
+  enabled: boolean
+) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  return await db
+    .update(gameThemes)
+    .set({ enabled })
+    .where(eq(gameThemes.id, themeId));
+}
+
+export async function updateStoredGameThemeOrder(
+  themeId: number,
+  sortOrder: number
+) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  return await db
+    .update(gameThemes)
+    .set({ sortOrder })
+    .where(eq(gameThemes.id, themeId));
 }
 
 function slugifyThemeName(name: string) {

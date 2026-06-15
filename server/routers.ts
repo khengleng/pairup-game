@@ -38,9 +38,11 @@ let nextGuestGameId = -1;
 
 type AvailableGameTheme = {
   id: string;
+  databaseId?: number;
   name: string;
   description: string;
   enabled: boolean;
+  sortOrder?: number;
   source: "static" | "database";
   pairs: CardPair[];
 };
@@ -161,6 +163,38 @@ export const appRouter = router({
         });
 
         return { success: true, ...result };
+      }),
+
+    setThemeEnabled: protectedProcedure
+      .input(
+        z.object({
+          themeId: z.number(),
+          enabled: z.boolean(),
+        })
+      )
+      .mutation(async ({ input, ctx }) => {
+        if (ctx.user.role !== "admin") {
+          throw new TRPCError({ code: "FORBIDDEN" });
+        }
+
+        await db.updateStoredGameThemeEnabled(input.themeId, input.enabled);
+        return { success: true };
+      }),
+
+    setThemeOrder: protectedProcedure
+      .input(
+        z.object({
+          themeId: z.number(),
+          sortOrder: z.number().int(),
+        })
+      )
+      .mutation(async ({ input, ctx }) => {
+        if (ctx.user.role !== "admin") {
+          throw new TRPCError({ code: "FORBIDDEN" });
+        }
+
+        await db.updateStoredGameThemeOrder(input.themeId, input.sortOrder);
+        return { success: true };
       }),
   }),
 
