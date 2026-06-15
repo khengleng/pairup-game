@@ -4,12 +4,7 @@ import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import {
-  GAME_THEMES,
-  GRID_SIZE_OPTIONS,
-  GRID_SIZES,
-  getThemeById,
-} from "@shared/gameConfig";
+import { GAME_THEMES, GRID_SIZE_OPTIONS, GRID_SIZES } from "@shared/gameConfig";
 import { Trophy, Medal } from "lucide-react";
 
 export default function Leaderboard() {
@@ -19,7 +14,13 @@ export default function Leaderboard() {
   );
   const [selectedGridSize, setSelectedGridSize] =
     useState<keyof typeof GRID_SIZES>("easy");
-  const selectedTheme = getThemeById(selectedThemeId) ?? GAME_THEMES[0];
+  const { data: configuredThemes } = trpc.gameConfig.getThemes.useQuery();
+  const themes =
+    configuredThemes && configuredThemes.length > 0
+      ? configuredThemes
+      : GAME_THEMES;
+  const selectedTheme =
+    themes.find(theme => theme.id === selectedThemeId) ?? themes[0];
 
   const { data: leaderboard, isLoading } =
     trpc.leaderboard.getByThemeAndSize.useQuery(
@@ -73,10 +74,10 @@ export default function Leaderboard() {
                 <TabsList
                   className="grid w-full"
                   style={{
-                    gridTemplateColumns: `repeat(${GAME_THEMES.length}, minmax(0, 1fr))`,
+                    gridTemplateColumns: `repeat(${themes.length}, minmax(0, 1fr))`,
                   }}
                 >
-                  {GAME_THEMES.map(theme => (
+                  {themes.map(theme => (
                     <TabsTrigger key={theme.id} value={theme.id}>
                       {theme.name}
                     </TabsTrigger>

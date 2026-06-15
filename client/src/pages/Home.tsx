@@ -5,12 +5,7 @@ import { Card } from "@/components/ui/card";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { trpc } from "@/lib/trpc";
 import { useLocation } from "wouter";
-import {
-  GAME_THEMES,
-  GRID_SIZE_OPTIONS,
-  GRID_SIZES,
-  getThemeById,
-} from "@shared/gameConfig";
+import { GAME_THEMES, GRID_SIZE_OPTIONS, GRID_SIZES } from "@shared/gameConfig";
 
 export default function Home() {
   const { user } = useAuth();
@@ -22,8 +17,14 @@ export default function Home() {
     useState<keyof typeof GRID_SIZES>("easy");
   const [isStarting, setIsStarting] = useState(false);
 
+  const { data: configuredThemes } = trpc.gameConfig.getThemes.useQuery();
   const createGameMutation = trpc.game.createGame.useMutation();
-  const selectedTheme = getThemeById(selectedThemeId) ?? GAME_THEMES[0];
+  const themes =
+    configuredThemes && configuredThemes.length > 0
+      ? configuredThemes
+      : GAME_THEMES;
+  const selectedTheme =
+    themes.find(theme => theme.id === selectedThemeId) ?? themes[0];
 
   const handleStartGame = async () => {
     if (!selectedTheme) return;
@@ -88,7 +89,7 @@ export default function Home() {
                     Configurable Themes
                   </h3>
                   <p className="text-sm text-gray-600">
-                    {GAME_THEMES.map(theme => theme.name).join(", ")}
+                    {themes.map(theme => theme.name).join(", ")}
                   </p>
                 </div>
               </div>
@@ -134,10 +135,10 @@ export default function Home() {
                 <TabsList
                   className="grid w-full"
                   style={{
-                    gridTemplateColumns: `repeat(${GAME_THEMES.length}, minmax(0, 1fr))`,
+                    gridTemplateColumns: `repeat(${themes.length}, minmax(0, 1fr))`,
                   }}
                 >
-                  {GAME_THEMES.map(theme => (
+                  {themes.map(theme => (
                     <TabsTrigger key={theme.id} value={theme.id}>
                       {theme.name}
                     </TabsTrigger>

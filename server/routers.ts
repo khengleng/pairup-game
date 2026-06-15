@@ -8,23 +8,42 @@ import { notifyOwner } from "./_core/notification";
 import { TRPCError } from "@trpc/server";
 import type { Game } from "../drizzle/schema";
 import {
+  GAME_THEMES,
   isGridSizeValue,
-  isThemeName,
+  type CardPair,
   type GridSizeValue,
 } from "@shared/gameConfig";
 
-const themeSchema = z.string().trim().min(1).max(255).refine(isThemeName, {
-  message: "Invalid theme",
-});
+const themeSchema = z.string().trim().min(1).max(255);
 const gridSizeSchema = z.custom<GridSizeValue>(
   value => typeof value === "string" && isGridSizeValue(value),
   {
     message: "Invalid grid size",
   }
 );
+const cardPairSchema = z.object({
+  term: z.string().trim().min(1).max(255),
+  definition: z.string().trim().min(1),
+});
+const createThemeSchema = z.object({
+  name: z.string().trim().min(1).max(255),
+  description: z.string().trim().min(1),
+  pairs: z
+    .array(cardPairSchema)
+    .min(32, "Add at least 32 pairs for the 8x8 game"),
+});
 
 const guestGames = new Map<number, Game>();
 let nextGuestGameId = -1;
+
+type AvailableGameTheme = {
+  id: string;
+  name: string;
+  description: string;
+  enabled: boolean;
+  source: "static" | "database";
+  pairs: CardPair[];
+};
 
 function createGuestGame(gameData: Omit<Game, "id" | "createdAt">): Game {
   const game: Game = {
@@ -54,6 +73,41 @@ function updateGuestGameScore(
   return updated;
 }
 
+async function getAvailableGameThemes(includeDisabled = false) {
+  const staticThemes: AvailableGameTheme[] = GAME_THEMES.map(theme => ({
+    id: theme.id,
+    name: theme.name,
+    description: theme.description,
+    enabled: true,
+    source: "static" as const,
+    pairs: theme.pairs.map(pair => ({ ...pair })),
+  }));
+
+  try {
+    const storedThemes = await db.getStoredGameThemes(includeDisabled);
+    const themesByName = new Map<string, AvailableGameTheme>(
+      staticThemes.map(theme => [theme.name, theme])
+    );
+    for (const theme of storedThemes) {
+      themesByName.set(theme.name, theme);
+    }
+    return Array.from(themesByName.values());
+  } catch (error) {
+    console.warn("[GameConfig] Falling back to bundled themes:", error);
+    return staticThemes;
+  }
+}
+
+async function requireTheme(themeName: string) {
+  const theme = (await getAvailableGameThemes(false)).find(
+    theme => theme.name === themeName
+  );
+  if (!theme) {
+    throw new TRPCError({ code: "BAD_REQUEST", message: "Invalid theme" });
+  }
+  return theme;
+}
+
 export const appRouter = router({
   system: systemRouter,
   auth: router({
@@ -67,6 +121,49 @@ export const appRouter = router({
     }),
   }),
 
+  gameConfig: router({
+    getThemes: publicProcedure.query(async () => {
+      return await getAvailableGameThemes(false);
+    }),
+
+    getAllThemes: protectedProcedure.query(async ({ ctx }) => {
+      if (ctx.user.role !== "admin") {
+        throw new TRPCError({ code: "FORBIDDEN" });
+      }
+      return await getAvailableGameThemes(true);
+    }),
+
+    createTheme: protectedProcedure
+      .input(createThemeSchema)
+      .mutation(async ({ input, ctx }) => {
+        if (ctx.user.role !== "admin") {
+          throw new TRPCError({ code: "FORBIDDEN" });
+        }
+
+        const existingTheme = (await getAvailableGameThemes(true)).find(
+          theme => theme.name.toLowerCase() === input.name.toLowerCase()
+        );
+        if (existingTheme) {
+          throw new TRPCError({
+            code: "CONFLICT",
+            message: "A theme with this name already exists",
+          });
+        }
+
+        const result = await db.createStoredGameTheme({
+          name: input.name,
+          description: input.description,
+          pairs: input.pairs.map((pair, index) => ({
+            id: index + 1,
+            term: pair.term,
+            definition: pair.definition,
+          })),
+        });
+
+        return { success: true, ...result };
+      }),
+  }),
+
   // Game procedures
   game: router({
     createGame: publicProcedure
@@ -77,6 +174,8 @@ export const appRouter = router({
         })
       )
       .mutation(async ({ input, ctx }) => {
+        await requireTheme(input.theme);
+
         const gameData = {
           userId: ctx.user?.id ?? 0,
           theme: input.theme,
@@ -164,6 +263,8 @@ export const appRouter = router({
         })
       )
       .query(async ({ input, ctx }) => {
+        await requireTheme(input.theme);
+
         if (!ctx.user?.id) return null;
         return await db.getUserBestScore(
           ctx.user.id,
@@ -188,6 +289,10 @@ export const appRouter = router({
         })
       )
       .mutation(async ({ input }) => {
+        if (input.theme) {
+          await requireTheme(input.theme);
+        }
+
         const leadData = {
           name: input.name,
           email: input.email,
@@ -233,6 +338,8 @@ export const appRouter = router({
         })
       )
       .query(async ({ input }) => {
+        await requireTheme(input.theme);
+
         return await db.getLeaderboard(
           input.theme,
           input.gridSize,

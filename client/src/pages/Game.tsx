@@ -3,7 +3,11 @@ import { useLocation } from "wouter";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { getCardPairsForTheme, createShuffledDeck } from "@shared/gameConfig";
+import {
+  createShuffledDeck,
+  GAME_THEMES,
+  GRID_DIMENSIONS,
+} from "@shared/gameConfig";
 import { Clock, Zap } from "lucide-react";
 
 interface GameCard {
@@ -22,6 +26,7 @@ export default function Game() {
   const { data: game, isLoading } = trpc.game.getGame.useQuery(gameId || 0, {
     enabled: !!gameId,
   });
+  const { data: configuredThemes } = trpc.gameConfig.getThemes.useQuery();
 
   const completeGameMutation = trpc.game.completeGame.useMutation();
 
@@ -37,7 +42,15 @@ export default function Game() {
   useEffect(() => {
     if (!game) return;
 
-    const pairs = getCardPairsForTheme(game.theme, game.gridSize);
+    const themes =
+      configuredThemes && configuredThemes.length > 0
+        ? configuredThemes
+        : GAME_THEMES;
+    const themePairs = themes.find(theme => theme.name === game.theme)?.pairs;
+    const dimensions = GRID_DIMENSIONS[game.gridSize];
+    if (!themePairs || !dimensions) return;
+
+    const pairs = themePairs.slice(0, dimensions.total / 2);
     const deck = createShuffledDeck(pairs);
     const gameCards: GameCard[] = deck.map((card, idx) => ({
       ...card,
@@ -46,7 +59,7 @@ export default function Game() {
     }));
     setCards(gameCards);
     setGameStarted(true);
-  }, [game]);
+  }, [game, configuredThemes]);
 
   // Timer
   useEffect(() => {

@@ -103,3 +103,35 @@ export const leaderboard = mysqlTable("leaderboard", {
 
 export type LeaderboardEntry = typeof leaderboard.$inferSelect;
 export type InsertLeaderboardEntry = typeof leaderboard.$inferInsert;
+
+/**
+ * Admin-managed game themes.
+ */
+export const gameThemes = mysqlTable("gameThemes", {
+  id: int("id").autoincrement().primaryKey(),
+  slug: varchar("slug", { length: 120 }).notNull().unique(),
+  name: varchar("name", { length: 255 }).notNull(),
+  description: text("description").notNull(),
+  enabled: boolean("enabled").default(true).notNull(),
+  sortOrder: int("sortOrder").default(0).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type GameThemeRecord = typeof gameThemes.$inferSelect;
+export type InsertGameThemeRecord = typeof gameThemes.$inferInsert;
+
+/**
+ * Admin-managed card pairs for each game theme.
+ */
+export const gameThemePairs = mysqlTable("gameThemePairs", {
+  id: int("id").autoincrement().primaryKey(),
+  themeId: int("themeId").notNull(),
+  pairOrder: int("pairOrder").notNull(),
+  term: varchar("term", { length: 255 }).notNull(),
+  definition: text("definition").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export type GameThemePairRecord = typeof gameThemePairs.$inferSelect;
+export type InsertGameThemePairRecord = typeof gameThemePairs.$inferInsert;
