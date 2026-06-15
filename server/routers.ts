@@ -7,6 +7,21 @@ import * as db from "./db";
 import { notifyOwner } from "./_core/notification";
 import { TRPCError } from "@trpc/server";
 import type { Game } from "../drizzle/schema";
+import {
+  isGridSizeValue,
+  isThemeName,
+  type GridSizeValue,
+} from "@shared/gameConfig";
+
+const themeSchema = z.string().trim().min(1).max(255).refine(isThemeName, {
+  message: "Invalid theme",
+});
+const gridSizeSchema = z.custom<GridSizeValue>(
+  value => typeof value === "string" && isGridSizeValue(value),
+  {
+    message: "Invalid grid size",
+  }
+);
 
 const guestGames = new Map<number, Game>();
 let nextGuestGameId = -1;
@@ -21,7 +36,11 @@ function createGuestGame(gameData: Omit<Game, "id" | "createdAt">): Game {
   return game;
 }
 
-function updateGuestGameScore(gameId: number, moves: number, timeSeconds: number) {
+function updateGuestGameScore(
+  gameId: number,
+  moves: number,
+  timeSeconds: number
+) {
   const game = guestGames.get(gameId);
   if (!game) return null;
 
@@ -51,10 +70,12 @@ export const appRouter = router({
   // Game procedures
   game: router({
     createGame: publicProcedure
-      .input(z.object({
-        theme: z.enum(["Products", "Features", "Team Members"]),
-        gridSize: z.enum(["4x4", "6x6", "8x8"]),
-      }))
+      .input(
+        z.object({
+          theme: themeSchema,
+          gridSize: gridSizeSchema,
+        })
+      )
       .mutation(async ({ input, ctx }) => {
         const gameData = {
           userId: ctx.user?.id ?? 0,
@@ -64,79 +85,108 @@ export const appRouter = router({
           timeSeconds: 0,
           completed: false,
         };
-        
+
         try {
           const result = await db.createGame(gameData);
           return { gameId: (result as any).insertId || 0 };
         } catch (error) {
           if (ctx.user?.id) throw error;
 
-          console.error("Failed to create guest game in database; using in-memory fallback:", error);
+          console.error(
+            "Failed to create guest game in database; using in-memory fallback:",
+            error
+          );
           const guestGame = createGuestGame(gameData);
           return { gameId: guestGame.id };
         }
       }),
 
     completeGame: publicProcedure
-      .input(z.object({
-        gameId: z.number(),
-        moves: z.number(),
-        timeSeconds: z.number(),
-      }))
+      .input(
+        z.object({
+          gameId: z.number(),
+          moves: z.number(),
+          timeSeconds: z.number(),
+        })
+      )
       .mutation(async ({ input, ctx }) => {
-        const game = input.gameId < 0
-          ? guestGames.get(input.gameId) ?? null
-          : await db.getGameById(input.gameId);
+        const game =
+          input.gameId < 0
+            ? (guestGames.get(input.gameId) ?? null)
+            : await db.getGameById(input.gameId);
         if (!game) throw new TRPCError({ code: "NOT_FOUND" });
 
         if (input.gameId < 0) {
           updateGuestGameScore(input.gameId, input.moves, input.timeSeconds);
         } else {
-          await db.updateGameScore(input.gameId, input.moves, input.timeSeconds);
+          await db.updateGameScore(
+            input.gameId,
+            input.moves,
+            input.timeSeconds
+          );
         }
 
         // Update user's best score if authenticated
         if (ctx.user?.id) {
-          await db.upsertScore(ctx.user.id, game.theme, game.gridSize, input.moves, input.timeSeconds);
-          await db.updateLeaderboard(ctx.user.id, ctx.user.name || undefined, game.theme, game.gridSize, input.moves, input.timeSeconds);
+          await db.upsertScore(
+            ctx.user.id,
+            game.theme,
+            game.gridSize,
+            input.moves,
+            input.timeSeconds
+          );
+          await db.updateLeaderboard(
+            ctx.user.id,
+            ctx.user.name || undefined,
+            game.theme,
+            game.gridSize,
+            input.moves,
+            input.timeSeconds
+          );
         }
 
         return { success: true };
       }),
 
-    getGame: publicProcedure
-      .input(z.number())
-      .query(async ({ input }) => {
-        if (input < 0) return guestGames.get(input) ?? null;
-        return await db.getGameById(input);
-      }),
+    getGame: publicProcedure.input(z.number()).query(async ({ input }) => {
+      if (input < 0) return guestGames.get(input) ?? null;
+      return await db.getGameById(input);
+    }),
   }),
 
   // Score procedures
   score: router({
     getUserBest: publicProcedure
-      .input(z.object({
-        theme: z.enum(["Products", "Features", "Team Members"]),
-        gridSize: z.enum(["4x4", "6x6", "8x8"]),
-      }))
+      .input(
+        z.object({
+          theme: themeSchema,
+          gridSize: gridSizeSchema,
+        })
+      )
       .query(async ({ input, ctx }) => {
         if (!ctx.user?.id) return null;
-        return await db.getUserBestScore(ctx.user.id, input.theme, input.gridSize);
+        return await db.getUserBestScore(
+          ctx.user.id,
+          input.theme,
+          input.gridSize
+        );
       }),
   }),
 
   // Lead procedures
   lead: router({
     submit: publicProcedure
-      .input(z.object({
-        name: z.string().min(1).max(255),
-        email: z.string().email().max(320),
-        company: z.string().min(1).max(255),
-        gameId: z.number().optional(),
-        score: z.number().optional(),
-        theme: z.enum(["Products", "Features", "Team Members"]).optional(),
-        gridSize: z.enum(["4x4", "6x6", "8x8"]).optional(),
-      }))
+      .input(
+        z.object({
+          name: z.string().min(1).max(255),
+          email: z.string().email().max(320),
+          company: z.string().min(1).max(255),
+          gameId: z.number().optional(),
+          score: z.number().optional(),
+          theme: themeSchema.optional(),
+          gridSize: gridSizeSchema.optional(),
+        })
+      )
       .mutation(async ({ input }) => {
         const leadData = {
           name: input.name,
@@ -163,32 +213,36 @@ export const appRouter = router({
         return { success: true, leadId: (result as any).insertId || 0 };
       }),
 
-    getAll: protectedProcedure
-      .query(async ({ ctx }) => {
-        // Only allow owner to view all leads
-        if (ctx.user.role !== "admin") {
-          throw new TRPCError({ code: "FORBIDDEN" });
-        }
-        return await db.getAllLeads();
-      }),
+    getAll: protectedProcedure.query(async ({ ctx }) => {
+      // Only allow owner to view all leads
+      if (ctx.user.role !== "admin") {
+        throw new TRPCError({ code: "FORBIDDEN" });
+      }
+      return await db.getAllLeads();
+    }),
   }),
 
   // Leaderboard procedures
   leaderboard: router({
     getByThemeAndSize: publicProcedure
-      .input(z.object({
-        theme: z.enum(["Products", "Features", "Team Members"]),
-        gridSize: z.enum(["4x4", "6x6", "8x8"]),
-        limit: z.number().default(10),
-      }))
+      .input(
+        z.object({
+          theme: themeSchema,
+          gridSize: gridSizeSchema,
+          limit: z.number().default(10),
+        })
+      )
       .query(async ({ input }) => {
-        return await db.getLeaderboard(input.theme, input.gridSize, input.limit);
+        return await db.getLeaderboard(
+          input.theme,
+          input.gridSize,
+          input.limit
+        );
       }),
 
-    getAll: publicProcedure
-      .query(async () => {
-        return await db.getAllLeaderboardEntries();
-      }),
+    getAll: publicProcedure.query(async () => {
+      return await db.getAllLeaderboardEntries();
+    }),
   }),
 });
 

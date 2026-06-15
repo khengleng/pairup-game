@@ -15,6 +15,13 @@
       "when": 1780753880301,
       "tag": "0001_closed_master_chief",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "5",
+      "when": 1781506314729,
+      "tag": "0002_configurable_theme_names",
+      "breakpoints": true
     }
   ]
 }

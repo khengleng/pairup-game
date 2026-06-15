@@ -3,20 +3,35 @@ import { useLocation } from "wouter";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { THEMES, GRID_SIZES } from "@shared/gameConfig";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  GAME_THEMES,
+  GRID_SIZE_OPTIONS,
+  GRID_SIZES,
+  getThemeById,
+} from "@shared/gameConfig";
 import { Trophy, Medal } from "lucide-react";
 
 export default function Leaderboard() {
   const [, setLocation] = useLocation();
-  const [selectedTheme, setSelectedTheme] = useState<keyof typeof THEMES>("Products");
-  const [selectedGridSize, setSelectedGridSize] = useState<keyof typeof GRID_SIZES>("easy");
+  const [selectedThemeId, setSelectedThemeId] = useState<string>(
+    GAME_THEMES[0]?.id ?? ""
+  );
+  const [selectedGridSize, setSelectedGridSize] =
+    useState<keyof typeof GRID_SIZES>("easy");
+  const selectedTheme = getThemeById(selectedThemeId) ?? GAME_THEMES[0];
 
-  const { data: leaderboard, isLoading } = trpc.leaderboard.getByThemeAndSize.useQuery({
-    theme: THEMES[selectedTheme],
-    gridSize: GRID_SIZES[selectedGridSize],
-    limit: 50,
-  });
+  const { data: leaderboard, isLoading } =
+    trpc.leaderboard.getByThemeAndSize.useQuery(
+      {
+        theme: selectedTheme?.name ?? "",
+        gridSize: GRID_SIZES[selectedGridSize],
+        limit: 50,
+      },
+      {
+        enabled: !!selectedTheme,
+      }
+    );
 
   return (
     <div className="min-h-screen pairup-gradient py-8">
@@ -41,7 +56,9 @@ export default function Leaderboard() {
         {/* Title */}
         <div className="text-center mb-12">
           <h2 className="heading-lg mb-2">🏆 Global Leaderboard</h2>
-          <p className="text-gray-600">See how you rank against other players</p>
+          <p className="text-gray-600">
+            See how you rank against other players
+          </p>
         </div>
 
         {/* Filters */}
@@ -49,31 +66,44 @@ export default function Leaderboard() {
           <div className="space-y-6">
             {/* Theme Selector */}
             <div>
-              <label className="block text-sm font-semibold text-gray-700 mb-3">Theme</label>
-              <Tabs value={selectedTheme} onValueChange={(v) => setSelectedTheme(v as keyof typeof THEMES)}>
-                <TabsList className="grid w-full grid-cols-3">
-                  <TabsTrigger value="Products">Products</TabsTrigger>
-                  <TabsTrigger value="Features">Features</TabsTrigger>
-                  <TabsTrigger value="TeamMembers">Team Members</TabsTrigger>
+              <label className="block text-sm font-semibold text-gray-700 mb-3">
+                Theme
+              </label>
+              <Tabs value={selectedThemeId} onValueChange={setSelectedThemeId}>
+                <TabsList
+                  className="grid w-full"
+                  style={{
+                    gridTemplateColumns: `repeat(${GAME_THEMES.length}, minmax(0, 1fr))`,
+                  }}
+                >
+                  {GAME_THEMES.map(theme => (
+                    <TabsTrigger key={theme.id} value={theme.id}>
+                      {theme.name}
+                    </TabsTrigger>
+                  ))}
                 </TabsList>
               </Tabs>
             </div>
 
             {/* Difficulty Selector */}
             <div>
-              <label className="block text-sm font-semibold text-gray-700 mb-3">Difficulty</label>
+              <label className="block text-sm font-semibold text-gray-700 mb-3">
+                Difficulty
+              </label>
               <div className="grid grid-cols-3 gap-2">
-                {Object.entries(GRID_SIZES).map(([key, label]) => (
+                {GRID_SIZE_OPTIONS.map(({ id, label }) => (
                   <button
-                    key={key}
-                    onClick={() => setSelectedGridSize(key as keyof typeof GRID_SIZES)}
+                    key={id}
+                    onClick={() =>
+                      setSelectedGridSize(id as keyof typeof GRID_SIZES)
+                    }
                     className={`py-3 px-4 rounded-lg font-semibold transition-all ${
-                      selectedGridSize === key
+                      selectedGridSize === id
                         ? "bg-gradient-to-r from-purple-500 to-purple-600 text-white shadow-lg"
                         : "bg-gray-100 text-gray-700 hover:bg-gray-200"
                     }`}
                   >
-                    <div className="text-sm capitalize">{key}</div>
+                    <div className="text-sm capitalize">{id}</div>
                     <div className="text-xs opacity-75">{label}</div>
                   </button>
                 ))}
@@ -94,12 +124,24 @@ export default function Leaderboard() {
               <table className="w-full">
                 <thead>
                   <tr className="bg-gradient-to-r from-purple-50 to-green-50 border-b border-gray-200">
-                    <th className="px-6 py-4 text-left text-sm font-semibold text-gray-900">Rank</th>
-                    <th className="px-6 py-4 text-left text-sm font-semibold text-gray-900">Player</th>
-                    <th className="px-6 py-4 text-left text-sm font-semibold text-gray-900">Best Moves</th>
-                    <th className="px-6 py-4 text-left text-sm font-semibold text-gray-900">Best Time</th>
-                    <th className="px-6 py-4 text-left text-sm font-semibold text-gray-900">Total Score</th>
-                    <th className="px-6 py-4 text-left text-sm font-semibold text-gray-900">Games</th>
+                    <th className="px-6 py-4 text-left text-sm font-semibold text-gray-900">
+                      Rank
+                    </th>
+                    <th className="px-6 py-4 text-left text-sm font-semibold text-gray-900">
+                      Player
+                    </th>
+                    <th className="px-6 py-4 text-left text-sm font-semibold text-gray-900">
+                      Best Moves
+                    </th>
+                    <th className="px-6 py-4 text-left text-sm font-semibold text-gray-900">
+                      Best Time
+                    </th>
+                    <th className="px-6 py-4 text-left text-sm font-semibold text-gray-900">
+                      Total Score
+                    </th>
+                    <th className="px-6 py-4 text-left text-sm font-semibold text-gray-900">
+                      Games
+                    </th>
                   </tr>
                 </thead>
                 <tbody>
@@ -112,25 +154,40 @@ export default function Leaderboard() {
                     >
                       <td className="px-6 py-4">
                         <div className="flex items-center gap-2">
-                          {idx === 0 && <Trophy className="w-5 h-5 text-yellow-500" />}
-                          {idx === 1 && <Medal className="w-5 h-5 text-gray-400" />}
-                          {idx === 2 && <Medal className="w-5 h-5 text-orange-600" />}
-                          <span className="font-bold text-gray-900">#{idx + 1}</span>
+                          {idx === 0 && (
+                            <Trophy className="w-5 h-5 text-yellow-500" />
+                          )}
+                          {idx === 1 && (
+                            <Medal className="w-5 h-5 text-gray-400" />
+                          )}
+                          {idx === 2 && (
+                            <Medal className="w-5 h-5 text-orange-600" />
+                          )}
+                          <span className="font-bold text-gray-900">
+                            #{idx + 1}
+                          </span>
                         </div>
                       </td>
                       <td className="px-6 py-4">
-                        <p className="font-semibold text-gray-900">{entry.playerName || "Anonymous"}</p>
+                        <p className="font-semibold text-gray-900">
+                          {entry.playerName || "Anonymous"}
+                        </p>
                       </td>
-                      <td className="px-6 py-4 text-gray-600">{entry.bestMoves}</td>
                       <td className="px-6 py-4 text-gray-600">
-                        {Math.floor(entry.bestTimeSeconds / 60)}:{String(entry.bestTimeSeconds % 60).padStart(2, "0")}
+                        {entry.bestMoves}
+                      </td>
+                      <td className="px-6 py-4 text-gray-600">
+                        {Math.floor(entry.bestTimeSeconds / 60)}:
+                        {String(entry.bestTimeSeconds % 60).padStart(2, "0")}
                       </td>
                       <td className="px-6 py-4">
                         <span className="inline-block px-3 py-1 bg-gradient-to-r from-purple-100 to-green-100 text-purple-700 rounded-full font-bold">
                           {entry.bestScore}
                         </span>
                       </td>
-                      <td className="px-6 py-4 text-gray-600">{entry.gamesPlayed}</td>
+                      <td className="px-6 py-4 text-gray-600">
+                        {entry.gamesPlayed}
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -138,7 +195,9 @@ export default function Leaderboard() {
             </div>
           ) : (
             <div className="p-8 text-center">
-              <p className="text-gray-600 mb-4">No scores yet for this combination</p>
+              <p className="text-gray-600 mb-4">
+                No scores yet for this combination
+              </p>
               <Button onClick={() => setLocation("/")} className="btn-primary">
                 Be the First to Play
               </Button>

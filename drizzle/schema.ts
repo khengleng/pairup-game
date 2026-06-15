@@ -1,4 +1,12 @@
-import { int, mysqlEnum, mysqlTable, text, timestamp, varchar, decimal, boolean } from "drizzle-orm/mysql-core";
+import {
+  int,
+  mysqlEnum,
+  mysqlTable,
+  text,
+  timestamp,
+  varchar,
+  boolean,
+} from "drizzle-orm/mysql-core";
 
 /**
  * Core user table backing auth flow.
@@ -31,7 +39,7 @@ export type InsertUser = typeof users.$inferInsert;
 export const games = mysqlTable("games", {
   id: int("id").autoincrement().primaryKey(),
   userId: int("userId"),
-  theme: mysqlEnum("theme", ["Products", "Features", "Team Members"]).notNull(),
+  theme: varchar("theme", { length: 255 }).notNull(),
   gridSize: mysqlEnum("gridSize", ["4x4", "6x6", "8x8"]).notNull(),
   moves: int("moves").notNull(),
   timeSeconds: int("timeSeconds").notNull(),
@@ -48,7 +56,7 @@ export type InsertGame = typeof games.$inferInsert;
 export const scores = mysqlTable("scores", {
   id: int("id").autoincrement().primaryKey(),
   userId: int("userId"),
-  theme: mysqlEnum("theme", ["Products", "Features", "Team Members"]).notNull(),
+  theme: varchar("theme", { length: 255 }).notNull(),
   gridSize: mysqlEnum("gridSize", ["4x4", "6x6", "8x8"]).notNull(),
   bestMoves: int("bestMoves").notNull(),
   bestTimeSeconds: int("bestTimeSeconds").notNull(),
@@ -69,7 +77,7 @@ export const leads = mysqlTable("leads", {
   company: varchar("company", { length: 255 }).notNull(),
   gameId: int("gameId"),
   score: int("score"),
-  theme: mysqlEnum("theme", ["Products", "Features", "Team Members"]),
+  theme: varchar("theme", { length: 255 }),
   gridSize: mysqlEnum("gridSize", ["4x4", "6x6", "8x8"]),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 });
@@ -84,7 +92,7 @@ export const leaderboard = mysqlTable("leaderboard", {
   id: int("id").autoincrement().primaryKey(),
   userId: int("userId"),
   playerName: varchar("playerName", { length: 255 }),
-  theme: mysqlEnum("theme", ["Products", "Features", "Team Members"]).notNull(),
+  theme: varchar("theme", { length: 255 }).notNull(),
   gridSize: mysqlEnum("gridSize", ["4x4", "6x6", "8x8"]).notNull(),
   bestScore: int("bestScore").notNull(), // Total score (moves + time)
   bestMoves: int("bestMoves").notNull(),

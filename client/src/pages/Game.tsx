@@ -3,7 +3,7 @@ import { useLocation } from "wouter";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { getCardPairsForTheme, createShuffledDeck, THEMES } from "@shared/gameConfig";
+import { getCardPairsForTheme, createShuffledDeck } from "@shared/gameConfig";
 import { Clock, Zap } from "lucide-react";
 
 interface GameCard {
@@ -37,10 +37,7 @@ export default function Game() {
   useEffect(() => {
     if (!game) return;
 
-    const theme = Object.entries(THEMES).find(([, v]) => v === game.theme)?.[0];
-    if (!theme) return;
-
-    const pairs = getCardPairsForTheme(theme as keyof typeof THEMES, game.gridSize);
+    const pairs = getCardPairsForTheme(game.theme, game.gridSize);
     const deck = createShuffledDeck(pairs);
     const gameCards: GameCard[] = deck.map((card, idx) => ({
       ...card,
@@ -56,7 +53,7 @@ export default function Game() {
     if (!gameStarted || gameCompleted) return;
 
     const timer = setInterval(() => {
-      setSeconds((s) => s + 1);
+      setSeconds(s => s + 1);
     }, 1000);
 
     return () => clearInterval(timer);
@@ -72,9 +69,9 @@ export default function Game() {
 
     if (card1.pairId === card2.pairId) {
       // Match found
-      setMatched((prev) => [...prev, idx1, idx2]);
+      setMatched(prev => [...prev, idx1, idx2]);
       setFlipped([]);
-      setMoves((m) => m + 1);
+      setMoves(m => m + 1);
 
       // Check if game is complete
       if (matched.length + 2 === cards.length) {
@@ -84,17 +81,22 @@ export default function Game() {
       // No match - flip back after delay
       setTimeout(() => {
         setFlipped([]);
-        setMoves((m) => m + 1);
+        setMoves(m => m + 1);
       }, 1000);
     }
   }, [flipped, cards, matched]);
 
   const handleCardClick = useCallback(
     (idx: number) => {
-      if (gameCompleted || flipped.length === 2 || flipped.includes(idx) || matched.includes(idx)) {
+      if (
+        gameCompleted ||
+        flipped.length === 2 ||
+        flipped.includes(idx) ||
+        matched.includes(idx)
+      ) {
         return;
       }
-      setFlipped((prev) => [...prev, idx]);
+      setFlipped(prev => [...prev, idx]);
     },
     [flipped, matched, gameCompleted]
   );
@@ -190,7 +192,9 @@ export default function Game() {
           </Card>
 
           <Card className="p-4 text-center">
-            <div className="text-sm font-semibold text-gray-600 mb-2">Progress</div>
+            <div className="text-sm font-semibold text-gray-600 mb-2">
+              Progress
+            </div>
             <p className="text-3xl font-bold text-purple-600">
               {matchedPairs}/{totalPairs}
             </p>
@@ -200,8 +204,12 @@ export default function Game() {
         {/* Progress Bar */}
         <div className="mb-8 bg-white rounded-lg p-4">
           <div className="flex justify-between items-center mb-2">
-            <span className="text-sm font-semibold text-gray-700">Pairs Matched</span>
-            <span className="text-sm font-semibold text-gray-600">{Math.round(progress)}%</span>
+            <span className="text-sm font-semibold text-gray-700">
+              Pairs Matched
+            </span>
+            <span className="text-sm font-semibold text-gray-600">
+              {Math.round(progress)}%
+            </span>
           </div>
           <div className="w-full bg-gray-200 rounded-full h-3 overflow-hidden">
             <div
@@ -218,18 +226,24 @@ export default function Game() {
               <button
                 key={idx}
                 onClick={() => handleCardClick(idx)}
-                disabled={gameCompleted || flipped.length === 2 || matched.includes(idx)}
+                disabled={
+                  gameCompleted || flipped.length === 2 || matched.includes(idx)
+                }
                 className={`aspect-square rounded-lg font-semibold text-center flex items-center justify-center p-2 transition-all duration-300 cursor-pointer ${
                   matched.includes(idx)
                     ? "bg-gradient-to-br from-purple-100 to-green-50 border-2 border-green-300 text-gray-900"
                     : flipped.includes(idx)
-                    ? "bg-gradient-to-br from-purple-500 to-purple-600 text-white border-2 border-purple-600"
-                    : "bg-gradient-to-br from-purple-400 to-purple-500 text-white border-2 border-purple-500 hover:from-purple-500 hover:to-purple-600"
+                      ? "bg-gradient-to-br from-purple-500 to-purple-600 text-white border-2 border-purple-600"
+                      : "bg-gradient-to-br from-purple-400 to-purple-500 text-white border-2 border-purple-500 hover:from-purple-500 hover:to-purple-600"
                 }`}
               >
-                <span className={`text-sm md:text-base break-words transition-all ${
-                  flipped.includes(idx) || matched.includes(idx) ? "opacity-100" : "opacity-0"
-                }`}>
+                <span
+                  className={`text-sm md:text-base break-words transition-all ${
+                    flipped.includes(idx) || matched.includes(idx)
+                      ? "opacity-100"
+                      : "opacity-0"
+                  }`}
+                >
                   {card.text}
                 </span>
               </button>
@@ -243,7 +257,9 @@ export default function Game() {
             <Card className="p-8 max-w-md w-full mx-4 text-center space-y-6">
               <div className="space-y-2">
                 <h2 className="heading-md">🎉 You Won!</h2>
-                <p className="text-gray-600">Congratulations on completing the puzzle!</p>
+                <p className="text-gray-600">
+                  Congratulations on completing the puzzle!
+                </p>
               </div>
 
               <div className="grid grid-cols-2 gap-4">
@@ -254,7 +270,8 @@ export default function Game() {
                 <div className="bg-green-50 rounded-lg p-4">
                   <p className="text-sm text-gray-600 mb-1">Time Taken</p>
                   <p className="text-2xl font-bold text-green-600">
-                    {Math.floor(seconds / 60)}:{String(seconds % 60).padStart(2, "0")}
+                    {Math.floor(seconds / 60)}:
+                    {String(seconds % 60).padStart(2, "0")}
                   </p>
                 </div>
               </div>
