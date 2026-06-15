@@ -1,10 +1,11 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { trpc } from "@/lib/trpc";
 import { useLocation } from "wouter";
+import { POST_LOGIN_REDIRECT_KEY } from "@/const";
 import { GAME_THEMES, GRID_SIZE_OPTIONS, GRID_SIZES } from "@shared/gameConfig";
 
 export default function Home() {
@@ -25,6 +26,15 @@ export default function Home() {
       : GAME_THEMES;
   const selectedTheme =
     themes.find(theme => theme.id === selectedThemeId) ?? themes[0];
+
+  useEffect(() => {
+    if (!user) return;
+    const redirectPath = localStorage.getItem(POST_LOGIN_REDIRECT_KEY);
+    if (!redirectPath) return;
+
+    localStorage.removeItem(POST_LOGIN_REDIRECT_KEY);
+    setLocation(redirectPath);
+  }, [setLocation, user]);
 
   const handleStartGame = async () => {
     if (!selectedTheme) return;

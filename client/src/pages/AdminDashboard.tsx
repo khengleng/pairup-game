@@ -105,15 +105,22 @@ export default function AdminDashboard() {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-purple-50 to-green-50">
         <Card className="p-8 max-w-md text-center space-y-4">
-          <h2 className="heading-md">Please Sign In</h2>
+          <h2 className="heading-md">Admin Login Required</h2>
           <p className="text-gray-600">
-            You need to be logged in to access the admin dashboard.
+            Sign in with an authorized admin account to access this dashboard.
           </p>
           <Button
-            onClick={() => setLocation("/")}
+            onClick={() => setLocation("/admin/login")}
             className="btn-primary w-full"
           >
-            Back to Home
+            Go to Admin Login
+          </Button>
+          <Button
+            onClick={() => setLocation("/")}
+            variant="outline"
+            className="w-full"
+          >
+            Back to Game
           </Button>
         </Card>
       </div>
