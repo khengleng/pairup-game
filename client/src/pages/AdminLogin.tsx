@@ -7,8 +7,9 @@ import { Card } from "@/components/ui/card";
 import { getLoginUrl, POST_LOGIN_REDIRECT_KEY } from "@/const";
 
 export default function AdminLogin() {
-  const [, setLocation] = useLocation();
+  const [location, setLocation] = useLocation();
   const { user, loading } = useAuth();
+  const isSetupLogin = location === "/setup";
 
   useEffect(() => {
     if (!user) return;
@@ -30,9 +31,12 @@ export default function AdminLogin() {
             <ShieldCheck className="w-7 h-7" />
           </div>
           <div>
-            <h1 className="heading-md">Admin Login</h1>
+            <h1 className="heading-md">
+              {isSetupLogin ? "Game Setup Login" : "Admin Login"}
+            </h1>
             <p className="text-sm text-gray-600 mt-2">
-              Sign in with an authorized admin account to manage PairUp.
+              Sign in with an authorized admin account to add themes, arrange
+              games, and manage PairUp.
             </p>
           </div>
         </div>
@@ -48,7 +52,7 @@ export default function AdminLogin() {
           disabled={loading}
           className="w-full btn-primary"
         >
-          {loading ? "Checking session..." : "Sign In as Admin"}
+          {loading ? "Checking session..." : "Sign In to Setup Games"}
         </Button>
 
         <Button

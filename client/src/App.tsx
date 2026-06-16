@@ -18,6 +18,7 @@ function Router() {
       <Route path={"/game/:gameId"} component={Game} />
       <Route path={"/completion/:gameId"} component={Completion} />
       <Route path={"/leaderboard"} component={Leaderboard} />
+      <Route path={"/setup"} component={AdminLogin} />
       <Route path={"/admin/login"} component={AdminLogin} />
       <Route path={"/admin"} component={AdminDashboard} />
       <Route path={"/404"} component={NotFound} />

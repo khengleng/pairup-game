@@ -71,6 +71,13 @@ export default function Home() {
                 Welcome, {user.name}
               </span>
             )}
+            <Button
+              variant="outline"
+              onClick={() => setLocation("/setup")}
+              className="btn-outline"
+            >
+              Game Setup
+            </Button>
           </div>
         </div>
       </nav>
