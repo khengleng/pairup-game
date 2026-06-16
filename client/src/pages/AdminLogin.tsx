@@ -4,12 +4,18 @@ import { ShieldCheck } from "lucide-react";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { getLoginUrl, POST_LOGIN_REDIRECT_KEY } from "@/const";
+import {
+  getAuthConfigStatus,
+  getLoginUrl,
+  POST_LOGIN_REDIRECT_KEY,
+} from "@/const";
+import { toast } from "sonner";
 
 export default function AdminLogin() {
   const [location, setLocation] = useLocation();
   const { user, loading } = useAuth();
   const isSetupLogin = location === "/setup";
+  const authConfig = getAuthConfigStatus();
 
   useEffect(() => {
     if (!user) return;
@@ -19,8 +25,16 @@ export default function AdminLogin() {
   }, [setLocation, user]);
 
   const handleAdminLogin = () => {
-    localStorage.setItem(POST_LOGIN_REDIRECT_KEY, "/admin");
-    window.location.href = getLoginUrl();
+    try {
+      localStorage.setItem(POST_LOGIN_REDIRECT_KEY, "/admin");
+      window.location.href = getLoginUrl();
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "OAuth is not configured correctly"
+      );
+    }
   };
 
   return (
@@ -47,9 +61,17 @@ export default function AdminLogin() {
           </div>
         ) : null}
 
+        {!authConfig.isConfigured ? (
+          <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
+            OAuth is not configured yet. Set a real{" "}
+            <span className="font-semibold">VITE_APP_ID</span> in Railway before
+            signing in.
+          </div>
+        ) : null}
+
         <Button
           onClick={handleAdminLogin}
-          disabled={loading}
+          disabled={loading || !authConfig.isConfigured}
           className="w-full btn-primary"
         >
           {loading ? "Checking session..." : "Sign In to Setup Games"}
