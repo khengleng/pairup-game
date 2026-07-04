@@ -6,6 +6,7 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { trpc } from "@/lib/trpc";
 import { useLocation } from "wouter";
 import { POST_LOGIN_REDIRECT_KEY } from "@/const";
+import { isTelegramMiniApp } from "@/lib/telegram";
 import { GAME_THEMES, GRID_SIZE_OPTIONS, GRID_SIZES } from "@shared/gameConfig";
 
 export default function Home() {
@@ -71,13 +72,15 @@ export default function Home() {
                 Welcome, {user.name}
               </span>
             )}
-            <Button
-              variant="outline"
-              onClick={() => setLocation("/setup")}
-              className="btn-outline"
-            >
-              Game Setup
-            </Button>
+            {!isTelegramMiniApp() && (
+              <Button
+                variant="outline"
+                onClick={() => setLocation("/setup")}
+                className="btn-outline"
+              >
+                Game Setup
+              </Button>
+            )}
           </div>
         </div>
       </nav>
