@@ -43,6 +43,13 @@
       "when": 1783176888643,
       "tag": "0005_numerous_hercules",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "5",
+      "when": 1783177428376,
+      "tag": "0006_good_justice",
+      "breakpoints": true
     }
   ]
 }

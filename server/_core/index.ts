@@ -9,7 +9,11 @@ import { appRouter } from "../routers";
 import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
 import { runMigrations } from "../db";
-import { registerTelegramBot, setupTelegramWebhook } from "../telegram";
+import {
+  registerTelegramBot,
+  setupTelegramWebhook,
+  startDailyNudgeScheduler,
+} from "../telegram";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -70,6 +74,8 @@ async function startServer() {
     setupTelegramWebhook().catch(error =>
       console.error("[Telegram] Setup failed:", error)
     );
+    // Start the daily-nudge scheduler (no-op if the bot isn't configured).
+    startDailyNudgeScheduler();
   });
 }
 

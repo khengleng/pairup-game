@@ -1,5 +1,6 @@
 import {
   int,
+  bigint,
   mysqlEnum,
   mysqlTable,
   text,
@@ -171,3 +172,28 @@ export const dailyScores = mysqlTable("dailyScores", {
 
 export type DailyScore = typeof dailyScores.$inferSelect;
 export type InsertDailyScore = typeof dailyScores.$inferInsert;
+
+/**
+ * Telegram chats that have engaged with the bot — targets for daily nudges.
+ * For private chats, chatId equals the Telegram user id.
+ */
+export const telegramChats = mysqlTable("telegramChats", {
+  chatId: bigint("chatId", { mode: "number" }).primaryKey(),
+  active: boolean("active").default(true).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  lastActiveAt: timestamp("lastActiveAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type TelegramChat = typeof telegramChats.$inferSelect;
+export type InsertTelegramChat = typeof telegramChats.$inferInsert;
+
+/**
+ * Small key/value store for app-level state (e.g. last daily-nudge date).
+ */
+export const appState = mysqlTable("appState", {
+  key: varchar("key", { length: 120 }).primaryKey(),
+  value: varchar("value", { length: 255 }),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type AppState = typeof appState.$inferSelect;

@@ -1,5 +1,7 @@
 import type { Express, Request, Response } from "express";
 import { createHash } from "crypto";
+import * as db from "./db";
+import { getDailyDateKey } from "@shared/gameConfig";
 
 /**
  * Telegram bot + Mini App integration.
@@ -75,6 +77,9 @@ export async function handleTelegramUpdate(update: any): Promise<void> {
   const message = update?.message;
   if (!message?.chat?.id) return;
 
+  // Remember this chat so we can send daily nudges.
+  await db.upsertTelegramChat(message.chat.id).catch(() => {});
+
   const text: string = message.text ?? "";
   if (text.startsWith("/start")) {
     await sendPlayPrompt(
@@ -140,4 +145,92 @@ export async function setupTelegramWebhook(): Promise<void> {
   });
 
   console.log(`[Telegram] Bot ready — Mini App at ${base}`);
+}
+
+// ---------------------------------------------------------------------------
+// Daily nudge — re-engage players once a day to keep streaks alive.
+// ---------------------------------------------------------------------------
+
+/** UTC hour to send the daily nudge (default 1 = ~08:00 ICT). */
+export const DAILY_NUDGE_HOUR_UTC = Number(process.env.DAILY_NUDGE_HOUR_UTC ?? "1");
+const NUDGE_CHECK_INTERVAL_MS = 15 * 60_000;
+const LAST_NUDGE_KEY = "lastDailyNudge";
+
+const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
+/** Pure decision: send once, when we're in the target UTC hour on a new day. */
+export function shouldSendDailyNudge(
+  nowUtcHour: number,
+  targetHour: number,
+  lastNudgeDate: string | null,
+  todayKey: string
+): boolean {
+  return nowUtcHour === targetHour && lastNudgeDate !== todayKey;
+}
+
+/** Send today's nudge to every active chat; deactivate chats that blocked us. */
+export async function broadcastDailyNudge(): Promise<{
+  sent: number;
+  deactivated: number;
+}> {
+  if (!isTelegramConfigured()) return { sent: 0, deactivated: 0 };
+
+  const url = getPublicBaseUrl();
+  const chatIds = await db.getActiveTelegramChatIds();
+  const replyMarkup = {
+    inline_keyboard: [[{ text: "▶️ Play Daily", web_app: { url } }]],
+  };
+
+  let sent = 0;
+  let deactivated = 0;
+  for (const chatId of chatIds) {
+    const res = await callTelegram("sendMessage", {
+      chat_id: chatId,
+      text: "🔥 Today's PairUp daily challenge is live! Same board for everyone — top the leaderboard and keep your streak alive.",
+      reply_markup: replyMarkup,
+    });
+    if (res?.ok) {
+      sent++;
+    } else if (res?.error_code === 403) {
+      // Bot was blocked / chat unavailable — stop nudging them.
+      await db.deactivateTelegramChat(chatId).catch(() => {});
+      deactivated++;
+    }
+    await delay(50); // stay well under Telegram's rate limits
+  }
+
+  console.log(`[Telegram] Daily nudge: sent ${sent}, deactivated ${deactivated}`);
+  return { sent, deactivated };
+}
+
+/** Start the in-app hourly-ish scheduler that fires the daily nudge. */
+export function startDailyNudgeScheduler(): void {
+  if (!isTelegramConfigured() || !getPublicBaseUrl()) return;
+
+  const check = async () => {
+    try {
+      const now = new Date();
+      const todayKey = getDailyDateKey(now);
+      const last = await db.getAppState(LAST_NUDGE_KEY);
+      if (
+        shouldSendDailyNudge(
+          now.getUTCHours(),
+          DAILY_NUDGE_HOUR_UTC,
+          last,
+          todayKey
+        )
+      ) {
+        // Mark first so a slow broadcast can't double-send on the next tick.
+        await db.setAppState(LAST_NUDGE_KEY, todayKey);
+        await broadcastDailyNudge();
+      }
+    } catch (error) {
+      console.error("[Telegram] Nudge check failed:", error);
+    }
+  };
+
+  setInterval(check, NUDGE_CHECK_INTERVAL_MS);
+  console.log(
+    `[Telegram] Daily nudge scheduler started (hour ${DAILY_NUDGE_HOUR_UTC} UTC)`
+  );
 }

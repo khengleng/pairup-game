@@ -10,6 +10,8 @@ import {
   gameThemes,
   gameThemePairs,
   dailyScores,
+  telegramChats,
+  appState,
 } from "../drizzle/schema";
 import { computeStreak, type StreakState } from "./streak";
 import { ENV } from "./_core/env";
@@ -515,6 +517,55 @@ export async function updateUserStreak(
   }
 
   return state;
+}
+
+// Telegram chat + app-state queries (for daily nudges)
+export async function upsertTelegramChat(chatId: number) {
+  const db = await getDb();
+  if (!db) return;
+  await db
+    .insert(telegramChats)
+    .values({ chatId, active: true })
+    .onDuplicateKeyUpdate({ set: { active: true, lastActiveAt: new Date() } });
+}
+
+export async function getActiveTelegramChatIds(): Promise<number[]> {
+  const db = await getDb();
+  if (!db) return [];
+  const rows = await db
+    .select({ chatId: telegramChats.chatId })
+    .from(telegramChats)
+    .where(eq(telegramChats.active, true));
+  return rows.map(r => r.chatId);
+}
+
+export async function deactivateTelegramChat(chatId: number) {
+  const db = await getDb();
+  if (!db) return;
+  await db
+    .update(telegramChats)
+    .set({ active: false })
+    .where(eq(telegramChats.chatId, chatId));
+}
+
+export async function getAppState(key: string): Promise<string | null> {
+  const db = await getDb();
+  if (!db) return null;
+  const rows = await db
+    .select()
+    .from(appState)
+    .where(eq(appState.key, key))
+    .limit(1);
+  return rows.length > 0 ? (rows[0].value ?? null) : null;
+}
+
+export async function setAppState(key: string, value: string) {
+  const db = await getDb();
+  if (!db) return;
+  await db
+    .insert(appState)
+    .values({ key, value })
+    .onDuplicateKeyUpdate({ set: { value } });
 }
 
 // Helper to get all leaderboard entries for all themes/sizes
