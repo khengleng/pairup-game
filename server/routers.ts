@@ -6,7 +6,7 @@ import { z } from "zod";
 import * as db from "./db";
 import { notifyOwner } from "./_core/notification";
 import { TRPCError } from "@trpc/server";
-import type { Game } from "../drizzle/schema";
+import type { Game, User } from "../drizzle/schema";
 import {
   GAME_THEMES,
   isGridSizeValue,
@@ -16,6 +16,11 @@ import {
 import { validateAndNormalizeCompletion } from "./gameLogic";
 import { rateLimit } from "./rateLimit";
 import { isEmailConfigured, sendEmail } from "./email";
+import {
+  validateInitData,
+  telegramDisplayName,
+  telegramOpenId,
+} from "./telegramAuth";
 import {
   codeMatches,
   expiryFromNow,
@@ -130,6 +135,33 @@ async function getAvailableGameThemes(includeDisabled = false) {
   } catch (error) {
     console.warn("[GameConfig] Falling back to bundled themes:", error);
     return staticThemes;
+  }
+}
+
+/**
+ * Resolve a Telegram Mini App player from signed initData into a real users
+ * row (creating it on first play), so their scores can hit the leaderboard.
+ * Returns null if there's no/invalid initData or the bot isn't configured.
+ */
+async function resolveTelegramUser(initData?: string): Promise<User | null> {
+  const token = process.env.TELEGRAM_BOT_TOKEN ?? "";
+  if (!initData || !token) return null;
+
+  const result = validateInitData(initData, token);
+  if (!result.ok) return null;
+
+  const openId = telegramOpenId(result.user);
+  try {
+    await db.upsertUser({
+      openId,
+      name: telegramDisplayName(result.user),
+      loginMethod: "telegram",
+      lastSignedIn: new Date(),
+    });
+    return (await db.getUserByOpenId(openId)) ?? null;
+  } catch (error) {
+    console.error("[Telegram] Failed to resolve player:", error);
+    return null;
   }
 }
 
@@ -301,6 +333,8 @@ export const appRouter = router({
           gameId: z.number().int(),
           moves: z.number().int().nonnegative(),
           timeSeconds: z.number().int().nonnegative(),
+          // Signed Telegram Mini App initData, so Telegram players rank too.
+          initData: z.string().optional(),
         })
       )
       .mutation(async ({ input, ctx }) => {
@@ -336,18 +370,20 @@ export const appRouter = router({
           await db.updateGameScore(input.gameId, moves, timeSeconds);
         }
 
-        // Update user's best score if authenticated
-        if (ctx.user?.id) {
+        // Identify the player: a logged-in Manus user, or a verified Telegram
+        // Mini App user. Either way their best score hits the leaderboard.
+        const player = ctx.user ?? (await resolveTelegramUser(input.initData));
+        if (player?.id) {
           await db.upsertScore(
-            ctx.user.id,
+            player.id,
             game.theme,
             game.gridSize,
             moves,
             timeSeconds
           );
           await db.updateLeaderboard(
-            ctx.user.id,
-            ctx.user.name || undefined,
+            player.id,
+            player.name || undefined,
             game.theme,
             game.gridSize,
             moves,
@@ -372,14 +408,16 @@ export const appRouter = router({
         z.object({
           theme: themeSchema,
           gridSize: gridSizeSchema,
+          initData: z.string().optional(),
         })
       )
       .query(async ({ input, ctx }) => {
         await requireTheme(input.theme);
 
-        if (!ctx.user?.id) return null;
+        const player = ctx.user ?? (await resolveTelegramUser(input.initData));
+        if (!player?.id) return null;
         return await db.getUserBestScore(
-          ctx.user.id,
+          player.id,
           input.theme,
           input.gridSize
         );

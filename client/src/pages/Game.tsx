@@ -8,6 +8,7 @@ import {
   GAME_THEMES,
   GRID_DIMENSIONS,
 } from "@shared/gameConfig";
+import { getTelegramInitData } from "@/lib/telegram";
 import { Clock, Zap } from "lucide-react";
 
 interface GameCard {
@@ -124,6 +125,7 @@ export default function Game() {
         gameId,
         moves,
         timeSeconds: seconds,
+        initData: getTelegramInitData(),
       });
       setLocation(
         `/completion/${gameId}?moves=${result.moves}&time=${result.timeSeconds}`

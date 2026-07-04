@@ -27,6 +27,15 @@ export function isTelegramMiniApp(): boolean {
   return !!getWebApp();
 }
 
+/**
+ * The signed initData string to send to the server so it can verify the
+ * Telegram identity. Undefined outside Telegram (or if empty).
+ */
+export function getTelegramInitData(): string | undefined {
+  const data = getWebApp()?.initData;
+  return data && data.length > 0 ? data : undefined;
+}
+
 /** Signal readiness and make the game fill the Telegram viewport. */
 export function initTelegramWebApp(): void {
   const webApp = getWebApp();

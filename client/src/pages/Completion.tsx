@@ -8,6 +8,7 @@ import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
+import { getTelegramInitData, isTelegramMiniApp } from "@/lib/telegram";
 import { Twitter, Linkedin, Copy } from "lucide-react";
 
 export default function Completion() {
@@ -22,10 +23,14 @@ export default function Completion() {
   const totalScore = moves + timeSeconds;
 
   const { user } = useAuth();
+  const initData = getTelegramInitData();
+  const hasIdentity = !!user || isTelegramMiniApp();
   const { data: game } = trpc.game.getGame.useQuery(gameId || 0, { enabled: !!gameId });
   const { data: personalBest } = trpc.score.getUserBest.useQuery(
-    game && user ? { theme: game.theme, gridSize: game.gridSize } : { theme: "Products", gridSize: "4x4" },
-    { enabled: !!game && !!user }
+    game
+      ? { theme: game.theme, gridSize: game.gridSize, initData }
+      : { theme: "Products", gridSize: "4x4" },
+    { enabled: !!game && hasIdentity }
   );
   const submitLeadMutation = trpc.lead.submit.useMutation();
   const verifyLeadMutation = trpc.lead.verify.useMutation();
