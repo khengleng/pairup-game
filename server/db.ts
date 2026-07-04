@@ -9,7 +9,9 @@ import {
   leaderboard,
   gameThemes,
   gameThemePairs,
+  dailyScores,
 } from "../drizzle/schema";
+import { computeStreak, type StreakState } from "./streak";
 import { ENV } from "./_core/env";
 import type { CardPair, GameTheme } from "@shared/gameConfig";
 
@@ -397,6 +399,122 @@ export async function updateLeaderboard(
       gamesPlayed: 1,
     });
   }
+}
+
+// Daily-challenge queries
+export async function upsertDailyScore(
+  userId: number,
+  playerName: string | undefined,
+  challengeDate: string,
+  theme: string,
+  gridSize: string,
+  moves: number,
+  timeSeconds: number
+) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  const score = moves + timeSeconds;
+  const existing = await db
+    .select()
+    .from(dailyScores)
+    .where(
+      and(
+        eq(dailyScores.userId, userId),
+        eq(dailyScores.challengeDate, challengeDate)
+      )
+    )
+    .limit(1);
+
+  if (existing.length > 0) {
+    if (score < existing[0].score) {
+      await db
+        .update(dailyScores)
+        .set({ score, moves, timeSeconds, playerName: playerName ?? null })
+        .where(eq(dailyScores.id, existing[0].id));
+    }
+    return;
+  }
+
+  await db.insert(dailyScores).values({
+    userId,
+    playerName: playerName ?? null,
+    challengeDate,
+    theme,
+    gridSize: gridSize as any,
+    score,
+    moves,
+    timeSeconds,
+  });
+}
+
+export async function getDailyLeaderboard(
+  challengeDate: string,
+  topN: number = 10
+) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  return await db
+    .select()
+    .from(dailyScores)
+    .where(eq(dailyScores.challengeDate, challengeDate))
+    .orderBy(asc(dailyScores.score))
+    .limit(topN);
+}
+
+export async function getUserDailyResult(userId: number, challengeDate: string) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  const result = await db
+    .select()
+    .from(dailyScores)
+    .where(
+      and(
+        eq(dailyScores.userId, userId),
+        eq(dailyScores.challengeDate, challengeDate)
+      )
+    )
+    .limit(1);
+  return result.length > 0 ? result[0] : null;
+}
+
+/** Advance (or reset) a player's daily streak; returns the new state. */
+export async function updateUserStreak(
+  userId: number,
+  todayKey: string
+): Promise<StreakState | null> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  const rows = await db
+    .select()
+    .from(users)
+    .where(eq(users.id, userId))
+    .limit(1);
+  const user = rows[0];
+  if (!user) return null;
+
+  const state = computeStreak(
+    user.lastDailyDate ?? null,
+    todayKey,
+    user.dailyStreak,
+    user.bestStreak
+  );
+
+  if (!state.alreadyPlayedToday) {
+    await db
+      .update(users)
+      .set({
+        dailyStreak: state.streak,
+        bestStreak: state.bestStreak,
+        lastDailyDate: todayKey,
+      })
+      .where(eq(users.id, userId));
+  }
+
+  return state;
 }
 
 // Helper to get all leaderboard entries for all themes/sizes

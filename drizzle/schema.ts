@@ -25,6 +25,11 @@ export const users = mysqlTable("users", {
   email: varchar("email", { length: 320 }),
   loginMethod: varchar("loginMethod", { length: 64 }),
   role: mysqlEnum("role", ["user", "admin"]).default("user").notNull(),
+  /** Daily-challenge streak tracking. */
+  dailyStreak: int("dailyStreak").default(0).notNull(),
+  bestStreak: int("bestStreak").default(0).notNull(),
+  /** UTC "YYYY-MM-DD" of the last completed daily challenge. */
+  lastDailyDate: varchar("lastDailyDate", { length: 10 }),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
   lastSignedIn: timestamp("lastSignedIn").defaultNow().notNull(),
@@ -144,3 +149,25 @@ export const gameThemePairs = mysqlTable("gameThemePairs", {
 
 export type GameThemePairRecord = typeof gameThemePairs.$inferSelect;
 export type InsertGameThemePairRecord = typeof gameThemePairs.$inferInsert;
+
+/**
+ * Daily-challenge results — one best entry per player per day, for the
+ * per-day leaderboard.
+ */
+export const dailyScores = mysqlTable("dailyScores", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull(),
+  playerName: varchar("playerName", { length: 255 }),
+  /** UTC "YYYY-MM-DD" of the challenge. */
+  challengeDate: varchar("challengeDate", { length: 10 }).notNull(),
+  theme: varchar("theme", { length: 255 }).notNull(),
+  gridSize: mysqlEnum("gridSize", ["4x4", "6x6", "8x8"]).notNull(),
+  score: int("score").notNull(), // moves + timeSeconds (lower is better)
+  moves: int("moves").notNull(),
+  timeSeconds: int("timeSeconds").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type DailyScore = typeof dailyScores.$inferSelect;
+export type InsertDailyScore = typeof dailyScores.$inferInsert;

@@ -6,8 +6,9 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { trpc } from "@/lib/trpc";
 import { useLocation } from "wouter";
 import { POST_LOGIN_REDIRECT_KEY } from "@/const";
-import { isTelegramMiniApp } from "@/lib/telegram";
+import { getTelegramInitData, isTelegramMiniApp } from "@/lib/telegram";
 import { GAME_THEMES, GRID_SIZE_OPTIONS, GRID_SIZES } from "@shared/gameConfig";
+import { Flame } from "lucide-react";
 
 export default function Home() {
   const { user } = useAuth();
@@ -27,6 +28,27 @@ export default function Home() {
       : GAME_THEMES;
   const selectedTheme =
     themes.find(theme => theme.id === selectedThemeId) ?? themes[0];
+
+  // Daily challenge
+  const initData = getTelegramInitData();
+  const { data: dailyChallenge } = trpc.daily.getChallenge.useQuery();
+  const { data: dailyStatus } = trpc.daily.getMyStatus.useQuery({ initData });
+  const [isStartingDaily, setIsStartingDaily] = useState(false);
+
+  const handlePlayDaily = async () => {
+    if (!dailyChallenge) return;
+    setIsStartingDaily(true);
+    try {
+      const result = await createGameMutation.mutateAsync({
+        theme: dailyChallenge.theme,
+        gridSize: dailyChallenge.gridSize,
+      });
+      setLocation(`/game/${result.gameId}?daily=1`);
+    } catch (error) {
+      console.error("Failed to start daily challenge:", error);
+      setIsStartingDaily(false);
+    }
+  };
 
   useEffect(() => {
     if (!user) return;
@@ -84,6 +106,51 @@ export default function Home() {
           </div>
         </div>
       </nav>
+
+      {/* Daily Challenge banner */}
+      {dailyChallenge && (
+        <section className="container pt-6">
+          <Card className="p-5 sm:p-6 bg-gradient-to-r from-purple-600 to-green-500 text-white border-0 shadow-lg">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+              <div className="space-y-1">
+                <div className="flex items-center gap-2 text-sm font-semibold uppercase tracking-wide opacity-90">
+                  <Flame className="w-4 h-4" />
+                  Daily Challenge
+                </div>
+                <p className="text-lg font-bold">
+                  {dailyChallenge.theme} · {dailyChallenge.gridSize}
+                </p>
+                <p className="text-sm opacity-90">
+                  Same board for everyone today. Beat the clock and climb the
+                  daily board.
+                </p>
+              </div>
+              <div className="flex items-center gap-4">
+                {dailyStatus && dailyStatus.streak > 0 && (
+                  <div className="text-center">
+                    <div className="flex items-center gap-1 text-2xl font-bold">
+                      <Flame className="w-5 h-5" />
+                      {dailyStatus.streak}
+                    </div>
+                    <div className="text-xs opacity-90">day streak</div>
+                  </div>
+                )}
+                <Button
+                  onClick={handlePlayDaily}
+                  disabled={isStartingDaily || createGameMutation.isPending}
+                  className="bg-white text-purple-700 hover:bg-purple-50 font-semibold"
+                >
+                  {dailyStatus?.playedToday
+                    ? "Play Again"
+                    : isStartingDaily
+                      ? "Loading..."
+                      : "Play Daily"}
+                </Button>
+              </div>
+            </div>
+          </Card>
+        </section>
+      )}
 
       {/* Hero Section */}
       <section className="container py-16 md:py-24">

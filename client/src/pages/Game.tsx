@@ -5,6 +5,9 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import {
   createShuffledDeck,
+  createSeededDeck,
+  dailyDeckSeed,
+  getDailyDateKey,
   GAME_THEMES,
   GRID_DIMENSIONS,
 } from "@shared/gameConfig";
@@ -23,6 +26,7 @@ export default function Game() {
   const [, setLocation] = useLocation();
   const gameIdStr = window.location.pathname.split("/").pop();
   const gameId = gameIdStr ? parseInt(gameIdStr, 10) : null;
+  const isDaily = new URLSearchParams(window.location.search).get("daily") === "1";
 
   const { data: game, isLoading } = trpc.game.getGame.useQuery(gameId || 0, {
     enabled: !!gameId,
@@ -52,7 +56,17 @@ export default function Game() {
     if (!themePairs || !dimensions) return;
 
     const pairs = themePairs.slice(0, dimensions.total / 2);
-    const deck = createShuffledDeck(pairs);
+    // Daily challenge uses a deterministic seed so everyone gets the same board.
+    const deck = isDaily
+      ? createSeededDeck(
+          pairs,
+          dailyDeckSeed(
+            getDailyDateKey(new Date()),
+            game.theme,
+            game.gridSize
+          )
+        )
+      : createShuffledDeck(pairs);
     const gameCards: GameCard[] = deck.map((card, idx) => ({
       ...card,
       isFlipped: false,
@@ -126,9 +140,14 @@ export default function Game() {
         moves,
         timeSeconds: seconds,
         initData: getTelegramInitData(),
+        daily: isDaily,
       });
+      const dailyParam = isDaily ? "&daily=1" : "";
+      const streakParam = result.daily
+        ? `&streak=${result.daily.streak}`
+        : "";
       setLocation(
-        `/completion/${gameId}?moves=${result.moves}&time=${result.timeSeconds}`
+        `/completion/${gameId}?moves=${result.moves}&time=${result.timeSeconds}${dailyParam}${streakParam}`
       );
     } catch (error) {
       console.error("Failed to complete game:", error);

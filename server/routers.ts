@@ -10,6 +10,8 @@ import type { Game, User } from "../drizzle/schema";
 import {
   GAME_THEMES,
   isGridSizeValue,
+  pickDailyChallenge,
+  getDailyDateKey,
   type CardPair,
   type GridSizeValue,
 } from "@shared/gameConfig";
@@ -143,6 +145,14 @@ async function getAvailableGameThemes(includeDisabled = false) {
     console.warn("[GameConfig] Falling back to bundled themes:", error);
     return staticThemes;
   }
+}
+
+/** Today's deterministic daily challenge, derived from the enabled themes. */
+async function getTodaysChallenge() {
+  const themes = await getAvailableGameThemes(false);
+  const names = themes.map(theme => theme.name).sort();
+  const dateKey = getDailyDateKey(new Date());
+  return pickDailyChallenge(dateKey, names);
 }
 
 /**
@@ -387,6 +397,8 @@ export const appRouter = router({
           timeSeconds: z.number().int().nonnegative(),
           // Signed Telegram Mini App initData, so Telegram players rank too.
           initData: z.string().optional(),
+          // Set when this is the daily challenge run.
+          daily: z.boolean().optional(),
         })
       )
       .mutation(async ({ input, ctx }) => {
@@ -425,6 +437,9 @@ export const appRouter = router({
         // Identify the player: a logged-in Manus user, or a verified Telegram
         // Mini App user. Either way their best score hits the leaderboard.
         const player = ctx.user ?? (await resolveTelegramUser(input.initData));
+        let daily: { streak: number; bestStreak: number; advanced: boolean } | null =
+          null;
+
         if (player?.id) {
           await db.upsertScore(
             player.id,
@@ -441,10 +456,45 @@ export const appRouter = router({
             moves,
             timeSeconds
           );
+
+          // Daily challenge: record the day's result + advance the streak, but
+          // only if this game actually matches today's challenge (anti-gaming).
+          if (input.daily) {
+            const challenge = await getTodaysChallenge();
+            if (
+              game.theme === challenge.theme &&
+              game.gridSize === challenge.gridSize
+            ) {
+              const todayKey = challenge.date;
+              await db.upsertDailyScore(
+                player.id,
+                player.name || undefined,
+                todayKey,
+                game.theme,
+                game.gridSize,
+                moves,
+                timeSeconds
+              );
+              const state = await db.updateUserStreak(player.id, todayKey);
+              if (state) {
+                daily = {
+                  streak: state.streak,
+                  bestStreak: state.bestStreak,
+                  advanced: state.advanced,
+                };
+              }
+            }
+          }
         }
 
         // Return the validated values so the client shows the recorded score.
-        return { success: true, moves, timeSeconds, totalScore: moves + timeSeconds };
+        return {
+          success: true,
+          moves,
+          timeSeconds,
+          totalScore: moves + timeSeconds,
+          daily,
+        };
       }),
 
     getGame: publicProcedure.input(z.number()).query(async ({ input }) => {
@@ -473,6 +523,50 @@ export const appRouter = router({
           input.theme,
           input.gridSize
         );
+      }),
+  }),
+
+  // Daily-challenge procedures
+  daily: router({
+    // Today's challenge config (same board for everyone, changes daily).
+    getChallenge: publicProcedure.query(async () => {
+      const challenge = await getTodaysChallenge();
+      // requireTheme guards against a challenge theme that vanished; fall back
+      // to it as-is (client also has bundled themes).
+      return challenge;
+    }),
+
+    // Today's ranking.
+    getLeaderboard: publicProcedure
+      .input(z.object({ limit: z.number().int().min(1).max(100).default(20) }))
+      .query(async ({ input }) => {
+        const dateKey = getDailyDateKey(new Date());
+        return await db.getDailyLeaderboard(dateKey, input.limit);
+      }),
+
+    // The caller's streak + whether they've played today's challenge.
+    getMyStatus: publicProcedure
+      .input(z.object({ initData: z.string().optional() }))
+      .query(async ({ input, ctx }) => {
+        const player = ctx.user ?? (await resolveTelegramUser(input.initData));
+        const dateKey = getDailyDateKey(new Date());
+        if (!player?.id) {
+          return {
+            identified: false,
+            streak: 0,
+            bestStreak: 0,
+            playedToday: false,
+            date: dateKey,
+          };
+        }
+        const result = await db.getUserDailyResult(player.id, dateKey);
+        return {
+          identified: true,
+          streak: player.dailyStreak,
+          bestStreak: player.bestStreak,
+          playedToday: !!result,
+          date: dateKey,
+        };
       }),
   }),
 

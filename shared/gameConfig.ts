@@ -282,3 +282,84 @@ export function createShuffledDeck(pairs: CardPair[]) {
 
   return deck;
 }
+
+// ---------------------------------------------------------------------------
+// Daily challenge: a deterministic board everyone gets for a given day.
+// ---------------------------------------------------------------------------
+
+/** Deterministic 32-bit seed from a string. */
+export function hashStringToSeed(input: string): number {
+  let hash = 2166136261; // FNV-1a offset basis
+  for (let i = 0; i < input.length; i++) {
+    hash ^= input.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  return hash >>> 0;
+}
+
+/** Small seeded PRNG (mulberry32) returning [0, 1). */
+export function mulberry32(seed: number): () => number {
+  let a = seed >>> 0;
+  return function () {
+    a |= 0;
+    a = (a + 0x6d2b79f5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+/** Deterministic deck shuffle from a seed — same seed → same board. */
+export function createSeededDeck(pairs: CardPair[], seed: number) {
+  const deck: Array<{ pairId: number; text: string; isMatch: boolean }> = [];
+  pairs.forEach(pair => {
+    deck.push({ pairId: pair.id, text: pair.term, isMatch: false });
+    deck.push({ pairId: pair.id, text: pair.definition, isMatch: false });
+  });
+
+  const rand = mulberry32(seed);
+  for (let i = deck.length - 1; i > 0; i--) {
+    const j = Math.floor(rand() * (i + 1));
+    [deck[i], deck[j]] = [deck[j], deck[i]];
+  }
+  return deck;
+}
+
+/** UTC date key "YYYY-MM-DD" used to scope the daily challenge. */
+export function getDailyDateKey(date: Date): string {
+  return date.toISOString().slice(0, 10);
+}
+
+export type DailyChallenge = {
+  date: string;
+  theme: string;
+  gridSize: GridSizeValue;
+  seed: number;
+};
+
+/**
+ * Pick the day's challenge deterministically from the date + available themes.
+ * `themeNames` should be passed sorted by the caller for stability.
+ */
+export function pickDailyChallenge(
+  dateKey: string,
+  themeNames: string[]
+): DailyChallenge {
+  const names = themeNames.length > 0 ? themeNames : ["Products"];
+  const rand = mulberry32(hashStringToSeed(`challenge:${dateKey}`));
+  const theme = names[Math.floor(rand() * names.length)];
+  const gridSize = GRID_SIZE_VALUES[
+    Math.floor(rand() * GRID_SIZE_VALUES.length)
+  ] as GridSizeValue;
+  const seed = hashStringToSeed(`${dateKey}:${theme}:${gridSize}`);
+  return { date: dateKey, theme, gridSize, seed };
+}
+
+/** The deck seed for a given daily challenge (client + server agree on this). */
+export function dailyDeckSeed(
+  dateKey: string,
+  theme: string,
+  gridSize: string
+): number {
+  return hashStringToSeed(`${dateKey}:${theme}:${gridSize}`);
+}

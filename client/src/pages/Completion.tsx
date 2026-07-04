@@ -9,7 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
 import { getTelegramInitData, isTelegramMiniApp } from "@/lib/telegram";
-import { Twitter, Linkedin, Copy } from "lucide-react";
+import { Twitter, Linkedin, Copy, Flame } from "lucide-react";
 
 export default function Completion() {
   const [, setLocation] = useLocation();
@@ -21,10 +21,16 @@ export default function Completion() {
   const moves = parseInt(params.get("moves") || "0", 10);
   const timeSeconds = parseInt(params.get("time") || "0", 10);
   const totalScore = moves + timeSeconds;
+  const isDaily = params.get("daily") === "1";
+  const streak = parseInt(params.get("streak") || "0", 10);
 
   const { user } = useAuth();
   const initData = getTelegramInitData();
   const hasIdentity = !!user || isTelegramMiniApp();
+  const { data: dailyLeaderboard } = trpc.daily.getLeaderboard.useQuery(
+    { limit: 10 },
+    { enabled: isDaily }
+  );
   const { data: game } = trpc.game.getGame.useQuery(gameId || 0, { enabled: !!gameId });
   const { data: personalBest } = trpc.score.getUserBest.useQuery(
     game
@@ -253,6 +259,56 @@ export default function Completion() {
             </Button>
           </div>
         </Card>
+
+        {/* Daily challenge: streak + today's board */}
+        {isDaily && (
+          <Card className="p-6 mb-8 space-y-4">
+            {streak > 0 && (
+              <div className="text-center">
+                <div className="inline-flex items-center gap-2 text-2xl font-bold text-purple-600">
+                  <Flame className="w-6 h-6" />
+                  {streak}-day streak!
+                </div>
+                <p className="text-sm text-gray-600 mt-1">
+                  Come back tomorrow to keep it alive.
+                </p>
+              </div>
+            )}
+            <div>
+              <h3 className="heading-md text-center mb-3">
+                Today's Daily Leaderboard
+              </h3>
+              {dailyLeaderboard && dailyLeaderboard.length > 0 ? (
+                <ol className="space-y-1">
+                  {dailyLeaderboard.map((entry, i) => (
+                    <li
+                      key={entry.id}
+                      className="flex items-center justify-between rounded-lg bg-gray-50 px-3 py-2 text-sm"
+                    >
+                      <span className="flex items-center gap-2">
+                        <span className="w-6 font-bold text-purple-600">
+                          {i + 1}
+                        </span>
+                        <span className="truncate max-w-[160px]">
+                          {entry.playerName || "Player"}
+                        </span>
+                      </span>
+                      <span className="font-semibold text-gray-700">
+                        {entry.moves} moves ·{" "}
+                        {Math.floor(entry.timeSeconds / 60)}:
+                        {String(entry.timeSeconds % 60).padStart(2, "0")}
+                      </span>
+                    </li>
+                  ))}
+                </ol>
+              ) : (
+                <p className="text-center text-sm text-gray-500">
+                  Be the first on today's board!
+                </p>
+              )}
+            </div>
+          </Card>
+        )}
 
         {/* Lead Capture Form */}
         {!submitted && pendingLeadId === null ? (
