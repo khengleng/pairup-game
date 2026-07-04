@@ -113,6 +113,9 @@ Telegram Mini App bot (see `server/telegram.ts`). If unset, the bot is disabled:
 - `PUBLIC_URL`: optional public https base URL; falls back to `RAILWAY_PUBLIC_DOMAIN` (set by Railway)
 - `DAILY_NUDGE_HOUR_UTC`: optional UTC hour (0–23) to send the daily-challenge nudge; defaults to `1` (~08:00 ICT)
 
+Walking challenge (see `server/walkLogic.ts`):
+- `DAILY_STEP_GOAL`: optional daily step target; defaults to `6000`
+
 Standalone admin login (see `server/adminAuth.ts`), for deployments without Manus OAuth:
 - `ADMIN_PASSWORD`: set this to enable password-based admin login at `/setup` (uses `JWT_SECRET` to sign the session)
 

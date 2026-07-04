@@ -12,6 +12,8 @@ import {
   dailyScores,
   telegramChats,
   appState,
+  walkSessions,
+  dailyWalks,
 } from "../drizzle/schema";
 import { computeStreak, type StreakState } from "./streak";
 import { ENV } from "./_core/env";
@@ -566,6 +568,133 @@ export async function setAppState(key: string, value: string) {
     .insert(appState)
     .values({ key, value })
     .onDuplicateKeyUpdate({ set: { value } });
+}
+
+// Walking-challenge queries
+export async function createWalkSession(userId: number | null) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const result = await db.insert(walkSessions).values({ userId: userId ?? undefined });
+  const insertId =
+    (result as any)?.[0]?.insertId ?? (result as any)?.insertId ?? 0;
+  return { insertId } as { insertId: number };
+}
+
+export async function getWalkSessionById(sessionId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const rows = await db
+    .select()
+    .from(walkSessions)
+    .where(eq(walkSessions.id, sessionId))
+    .limit(1);
+  return rows.length > 0 ? rows[0] : null;
+}
+
+export async function completeWalkSession(sessionId: number, steps: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db
+    .update(walkSessions)
+    .set({ steps, completed: true })
+    .where(eq(walkSessions.id, sessionId));
+}
+
+/** Add steps to today's total; returns the new total and whether the goal is met. */
+export async function addDailyWalkSteps(
+  userId: number,
+  playerName: string | undefined,
+  walkDate: string,
+  addSteps: number,
+  goal: number
+): Promise<{ total: number; goalMet: boolean }> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  const existing = await db
+    .select()
+    .from(dailyWalks)
+    .where(and(eq(dailyWalks.userId, userId), eq(dailyWalks.walkDate, walkDate)))
+    .limit(1);
+
+  if (existing.length > 0) {
+    const total = existing[0].steps + addSteps;
+    const goalMet = total >= goal;
+    await db
+      .update(dailyWalks)
+      .set({ steps: total, goalMet, playerName: playerName ?? existing[0].playerName })
+      .where(eq(dailyWalks.id, existing[0].id));
+    return { total, goalMet };
+  }
+
+  const goalMet = addSteps >= goal;
+  await db.insert(dailyWalks).values({
+    userId,
+    playerName: playerName ?? null,
+    walkDate,
+    steps: addSteps,
+    goalMet,
+  });
+  return { total: addSteps, goalMet };
+}
+
+export async function getUserDailyWalk(userId: number, walkDate: string) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const rows = await db
+    .select()
+    .from(dailyWalks)
+    .where(and(eq(dailyWalks.userId, userId), eq(dailyWalks.walkDate, walkDate)))
+    .limit(1);
+  return rows.length > 0 ? rows[0] : null;
+}
+
+export async function getWalkLeaderboard(walkDate: string, topN: number = 20) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  return await db
+    .select()
+    .from(dailyWalks)
+    .where(eq(dailyWalks.walkDate, walkDate))
+    .orderBy(desc(dailyWalks.steps))
+    .limit(topN);
+}
+
+/** Advance the walk streak (goal met on consecutive days); idempotent per day. */
+export async function updateUserWalkStreak(
+  userId: number,
+  todayKey: string
+): Promise<StreakState | null> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  const rows = await db
+    .select()
+    .from(users)
+    .where(eq(users.id, userId))
+    .limit(1);
+  const user = rows[0];
+  if (!user) return null;
+
+  const state = computeStreak(
+    user.lastWalkDate ?? null,
+    todayKey,
+    user.walkStreak,
+    user.bestWalkStreak
+  );
+
+  if (!state.alreadyPlayedToday) {
+    await db
+      .update(users)
+      .set({
+        walkStreak: state.streak,
+        bestWalkStreak: state.bestStreak,
+        lastWalkDate: todayKey,
+      })
+      .where(eq(users.id, userId));
+  }
+
+  return state;
 }
 
 // Helper to get all leaderboard entries for all themes/sizes

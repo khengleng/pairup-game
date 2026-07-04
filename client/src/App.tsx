@@ -8,6 +8,7 @@ import Home from "./pages/Home";
 import Game from "./pages/Game";
 import Completion from "./pages/Completion";
 import Leaderboard from "./pages/Leaderboard";
+import WalkChallenge from "./pages/WalkChallenge";
 import AdminDashboard from "./pages/AdminDashboard";
 import AdminLogin from "./pages/AdminLogin";
 
@@ -18,6 +19,7 @@ function Router() {
       <Route path={"/game/:gameId"} component={Game} />
       <Route path={"/completion/:gameId"} component={Completion} />
       <Route path={"/leaderboard"} component={Leaderboard} />
+      <Route path={"/walk"} component={WalkChallenge} />
       <Route path={"/setup"} component={AdminLogin} />
       <Route path={"/admin/login"} component={AdminLogin} />
       <Route path={"/admin"} component={AdminDashboard} />

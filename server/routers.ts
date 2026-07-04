@@ -31,6 +31,7 @@ import {
   verifyAdminPassword,
 } from "./adminAuth";
 import { getBotShareUrl } from "./telegram";
+import { validateWalkSteps, getDailyStepGoal } from "./walkLogic";
 import {
   codeMatches,
   expiryFromNow,
@@ -576,6 +577,112 @@ export const appRouter = router({
           playedToday: !!result,
           date: dateKey,
         };
+      }),
+  }),
+
+  // Walking-challenge procedures (in-app step counting)
+  walk: router({
+    // Start a walk session; the server-recorded start time backs anti-cheat.
+    start: publicProcedure
+      .input(z.object({ initData: z.string().optional() }))
+      .mutation(async ({ input, ctx }) => {
+        const ip = getClientIp(ctx.req);
+        if (!rateLimit(`walkStart:${ip}`, 20, 60_000).allowed) {
+          throw new TRPCError({
+            code: "TOO_MANY_REQUESTS",
+            message: "Too many walk sessions. Please slow down.",
+          });
+        }
+        const player = ctx.user ?? (await resolveTelegramUser(input.initData));
+        const result = await db.createWalkSession(player?.id ?? null);
+        return { sessionId: result.insertId };
+      }),
+
+    // Finish a walk session with the client's step count.
+    complete: publicProcedure
+      .input(
+        z.object({
+          sessionId: z.number().int().positive(),
+          steps: z.number().int().nonnegative(),
+          initData: z.string().optional(),
+        })
+      )
+      .mutation(async ({ input, ctx }) => {
+        const session = await db.getWalkSessionById(input.sessionId);
+        if (!session) throw new TRPCError({ code: "NOT_FOUND" });
+        if (session.completed) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "This walk has already been recorded.",
+          });
+        }
+
+        const elapsedSeconds =
+          (Date.now() - session.createdAt.getTime()) / 1000;
+        const steps = validateWalkSteps({ steps: input.steps, elapsedSeconds });
+        await db.completeWalkSession(input.sessionId, steps);
+
+        const goal = getDailyStepGoal();
+        const player = ctx.user ?? (await resolveTelegramUser(input.initData));
+        const todayKey = getDailyDateKey(new Date());
+
+        if (!player?.id) {
+          return {
+            steps,
+            total: steps,
+            goal,
+            goalMet: steps >= goal,
+            streak: 0,
+          };
+        }
+
+        const { total, goalMet } = await db.addDailyWalkSteps(
+          player.id,
+          player.name || undefined,
+          todayKey,
+          steps,
+          goal
+        );
+        let streak = player.walkStreak;
+        if (goalMet) {
+          const state = await db.updateUserWalkStreak(player.id, todayKey);
+          if (state) streak = state.streak;
+        }
+        return { steps, total, goal, goalMet, streak };
+      }),
+
+    getToday: publicProcedure
+      .input(z.object({ initData: z.string().optional() }))
+      .query(async ({ input, ctx }) => {
+        const goal = getDailyStepGoal();
+        const player = ctx.user ?? (await resolveTelegramUser(input.initData));
+        const todayKey = getDailyDateKey(new Date());
+        if (!player?.id) {
+          return {
+            identified: false,
+            steps: 0,
+            goal,
+            goalMet: false,
+            streak: 0,
+            bestStreak: 0,
+          };
+        }
+        const result = await db.getUserDailyWalk(player.id, todayKey);
+        return {
+          identified: true,
+          steps: result?.steps ?? 0,
+          goal,
+          goalMet: result?.goalMet ?? false,
+          streak: player.walkStreak,
+          bestStreak: player.bestWalkStreak,
+        };
+      }),
+
+    getLeaderboard: publicProcedure
+      .input(z.object({ limit: z.number().int().min(1).max(100).default(20) }))
+      .query(async ({ input }) => {
+        const todayKey = getDailyDateKey(new Date());
+        return await db.getWalkLeaderboard(todayKey, input.limit);
       }),
   }),
 

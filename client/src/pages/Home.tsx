@@ -8,7 +8,7 @@ import { useLocation } from "wouter";
 import { POST_LOGIN_REDIRECT_KEY } from "@/const";
 import { getTelegramInitData, isTelegramMiniApp } from "@/lib/telegram";
 import { GAME_THEMES, GRID_SIZE_OPTIONS, GRID_SIZES } from "@shared/gameConfig";
-import { Flame } from "lucide-react";
+import { Flame, Footprints, ChevronRight } from "lucide-react";
 
 export default function Home() {
   const { user } = useAuth();
@@ -151,6 +151,27 @@ export default function Home() {
           </Card>
         </section>
       )}
+
+      {/* Walking Challenge CTA */}
+      <section className="container pt-4">
+        <Card
+          className="p-4 sm:p-5 flex items-center justify-between gap-4 cursor-pointer hover:shadow-md transition-shadow"
+          onClick={() => setLocation("/walk")}
+        >
+          <div className="flex items-center gap-3">
+            <div className="w-11 h-11 rounded-lg bg-gradient-to-br from-purple-500 to-green-400 text-white flex items-center justify-center flex-shrink-0">
+              <Footprints className="w-6 h-6" />
+            </div>
+            <div>
+              <p className="font-bold text-gray-900">Walking Challenge</p>
+              <p className="text-sm text-gray-600">
+                Hit your daily step goal and keep your streak alive.
+              </p>
+            </div>
+          </div>
+          <ChevronRight className="w-5 h-5 text-gray-400 flex-shrink-0" />
+        </Card>
+      </section>
 
       {/* Hero Section */}
       <section className="container py-16 md:py-24">

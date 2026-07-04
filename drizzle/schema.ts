@@ -26,11 +26,15 @@ export const users = mysqlTable("users", {
   email: varchar("email", { length: 320 }),
   loginMethod: varchar("loginMethod", { length: 64 }),
   role: mysqlEnum("role", ["user", "admin"]).default("user").notNull(),
-  /** Daily-challenge streak tracking. */
+  /** Daily-challenge (memory game) streak tracking. */
   dailyStreak: int("dailyStreak").default(0).notNull(),
   bestStreak: int("bestStreak").default(0).notNull(),
   /** UTC "YYYY-MM-DD" of the last completed daily challenge. */
   lastDailyDate: varchar("lastDailyDate", { length: 10 }),
+  /** Walking-challenge streak tracking (goal met on consecutive days). */
+  walkStreak: int("walkStreak").default(0).notNull(),
+  bestWalkStreak: int("bestWalkStreak").default(0).notNull(),
+  lastWalkDate: varchar("lastWalkDate", { length: 10 }),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
   lastSignedIn: timestamp("lastSignedIn").defaultNow().notNull(),
@@ -197,3 +201,37 @@ export const appState = mysqlTable("appState", {
 });
 
 export type AppState = typeof appState.$inferSelect;
+
+/**
+ * A walking session — created on "Start walk", completed with a step count.
+ * Server-recorded start time backs the step-plausibility check.
+ */
+export const walkSessions = mysqlTable("walkSessions", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId"),
+  steps: int("steps").default(0).notNull(),
+  completed: boolean("completed").default(false).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export type WalkSession = typeof walkSessions.$inferSelect;
+export type InsertWalkSession = typeof walkSessions.$inferInsert;
+
+/**
+ * Per-player daily step total — one row per player per day, for the streak
+ * and the daily step leaderboard.
+ */
+export const dailyWalks = mysqlTable("dailyWalks", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull(),
+  playerName: varchar("playerName", { length: 255 }),
+  /** UTC "YYYY-MM-DD". */
+  walkDate: varchar("walkDate", { length: 10 }).notNull(),
+  steps: int("steps").default(0).notNull(),
+  goalMet: boolean("goalMet").default(false).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type DailyWalk = typeof dailyWalks.$inferSelect;
+export type InsertDailyWalk = typeof dailyWalks.$inferInsert;
