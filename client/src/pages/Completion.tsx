@@ -8,8 +8,12 @@ import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
-import { getTelegramInitData, isTelegramMiniApp } from "@/lib/telegram";
-import { Twitter, Linkedin, Copy, Flame } from "lucide-react";
+import {
+  getTelegramInitData,
+  isTelegramMiniApp,
+  shareToTelegram,
+} from "@/lib/telegram";
+import { Twitter, Linkedin, Copy, Flame, Send } from "lucide-react";
 
 export default function Completion() {
   const [, setLocation] = useLocation();
@@ -31,6 +35,10 @@ export default function Completion() {
     { limit: 10 },
     { enabled: isDaily }
   );
+  const inTelegram = isTelegramMiniApp();
+  const { data: shareLink } = trpc.telegram.getShareLink.useQuery(undefined, {
+    enabled: inTelegram,
+  });
   const { data: game } = trpc.game.getGame.useQuery(gameId || 0, { enabled: !!gameId });
   const { data: personalBest } = trpc.score.getUserBest.useQuery(
     game
@@ -132,8 +140,17 @@ export default function Completion() {
     }
   };
 
+  const scoreMessage = `I just completed PairUp in ${moves} moves and ${Math.floor(timeSeconds / 60)}:${String(timeSeconds % 60).padStart(2, "0")}!${isDaily ? " (today's Daily Challenge)" : ""} Can you beat my score? 🎮`;
+
+  const handleTelegramShare = () => {
+    const url = shareLink?.url ?? window.location.origin;
+    if (!shareToTelegram(url, scoreMessage)) {
+      navigator.clipboard.writeText(`${scoreMessage}\n${url}`);
+      toast.success("Copied — paste it into any chat!");
+    }
+  };
+
   const handleShare = (platform: "twitter" | "linkedin" | "copy") => {
-    const scoreMessage = `I just completed PairUp in ${moves} moves and ${Math.floor(timeSeconds / 60)}:${String(timeSeconds % 60).padStart(2, "0")}! Can you beat my score? 🎮`;
     const shareUrl = window.location.origin;
 
     if (platform === "twitter") {
@@ -235,29 +252,49 @@ export default function Completion() {
         {/* Social Sharing */}
         <Card className="p-8 space-y-6 mb-8">
           <h3 className="heading-md text-center">Share Your Victory</h3>
-          <div className="grid grid-cols-3 gap-4">
-            <Button
-              onClick={() => handleShare("twitter")}
-              className="flex items-center justify-center gap-2 bg-blue-500 hover:bg-blue-600 text-white"
-            >
-              <Twitter className="w-5 h-5" />
-              <span className="hidden sm:inline">Tweet</span>
-            </Button>
-            <Button
-              onClick={() => handleShare("linkedin")}
-              className="flex items-center justify-center gap-2 bg-blue-700 hover:bg-blue-800 text-white"
-            >
-              <Linkedin className="w-5 h-5" />
-              <span className="hidden sm:inline">Share</span>
-            </Button>
-            <Button
-              onClick={() => handleShare("copy")}
-              className="flex items-center justify-center gap-2 bg-gray-600 hover:bg-gray-700 text-white"
-            >
-              <Copy className="w-5 h-5" />
-              <span className="hidden sm:inline">Copy</span>
-            </Button>
-          </div>
+          {inTelegram ? (
+            <div className="space-y-3">
+              <Button
+                onClick={handleTelegramShare}
+                className="w-full flex items-center justify-center gap-2 bg-gradient-to-r from-purple-600 to-green-500 text-white font-semibold"
+              >
+                <Send className="w-5 h-5" />
+                Challenge friends in a chat
+              </Button>
+              <Button
+                variant="outline"
+                onClick={() => handleShare("copy")}
+                className="w-full flex items-center justify-center gap-2"
+              >
+                <Copy className="w-5 h-5" />
+                Copy score
+              </Button>
+            </div>
+          ) : (
+            <div className="grid grid-cols-3 gap-4">
+              <Button
+                onClick={() => handleShare("twitter")}
+                className="flex items-center justify-center gap-2 bg-blue-500 hover:bg-blue-600 text-white"
+              >
+                <Twitter className="w-5 h-5" />
+                <span className="hidden sm:inline">Tweet</span>
+              </Button>
+              <Button
+                onClick={() => handleShare("linkedin")}
+                className="flex items-center justify-center gap-2 bg-blue-700 hover:bg-blue-800 text-white"
+              >
+                <Linkedin className="w-5 h-5" />
+                <span className="hidden sm:inline">Share</span>
+              </Button>
+              <Button
+                onClick={() => handleShare("copy")}
+                className="flex items-center justify-center gap-2 bg-gray-600 hover:bg-gray-700 text-white"
+              >
+                <Copy className="w-5 h-5" />
+                <span className="hidden sm:inline">Copy</span>
+              </Button>
+            </div>
+          )}
         </Card>
 
         {/* Daily challenge: streak + today's board */}

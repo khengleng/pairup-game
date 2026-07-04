@@ -28,6 +28,27 @@ export function isTelegramConfigured(): boolean {
   return TOKEN.length > 0;
 }
 
+let cachedBotUsername: string | null = null;
+
+/** The bot's @username (cached), used to build shareable deep links. */
+export async function getBotUsername(): Promise<string | null> {
+  if (!isTelegramConfigured()) return null;
+  if (cachedBotUsername) return cachedBotUsername;
+  const res = await callTelegram("getMe", {});
+  if (res?.ok && res.result?.username) {
+    cachedBotUsername = res.result.username as string;
+    return cachedBotUsername;
+  }
+  return null;
+}
+
+/** A link recipients can tap to open the bot (falls back to the web URL). */
+export async function getBotShareUrl(): Promise<string | null> {
+  const username = await getBotUsername();
+  if (username) return `https://t.me/${username}`;
+  return getPublicBaseUrl() || null;
+}
+
 /** Public https base URL used for the Mini App and webhook. */
 export function getPublicBaseUrl(): string {
   const explicit = process.env.PUBLIC_URL ?? process.env.APP_BASE_URL ?? "";

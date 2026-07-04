@@ -30,6 +30,7 @@ import {
   isAdminPasswordConfigured,
   verifyAdminPassword,
 } from "./adminAuth";
+import { getBotShareUrl } from "./telegram";
 import {
   codeMatches,
   expiryFromNow,
@@ -524,6 +525,14 @@ export const appRouter = router({
           input.gridSize
         );
       }),
+  }),
+
+  // Telegram helpers for the client
+  telegram: router({
+    // A tappable link recipients can use to open the game (for native share).
+    getShareLink: publicProcedure.query(async () => ({
+      url: await getBotShareUrl(),
+    })),
   }),
 
   // Daily-challenge procedures

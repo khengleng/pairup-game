@@ -12,6 +12,7 @@ type TelegramWebApp = {
   disableVerticalSwipes?: () => void;
   setHeaderColor?: (color: string) => void;
   setBackgroundColor?: (color: string) => void;
+  openTelegramLink?: (url: string) => void;
   colorScheme?: "light" | "dark";
   initData?: string;
   initDataUnsafe?: { user?: { id: number; first_name?: string; username?: string } };
@@ -34,6 +35,20 @@ export function isTelegramMiniApp(): boolean {
 export function getTelegramInitData(): string | undefined {
   const data = getWebApp()?.initData;
   return data && data.length > 0 ? data : undefined;
+}
+
+/**
+ * Open Telegram's native "share to a chat" sheet with the given link + text.
+ * Returns false if not running inside Telegram.
+ */
+export function shareToTelegram(shareUrl: string, text: string): boolean {
+  const webApp = getWebApp();
+  if (!webApp?.openTelegramLink) return false;
+  const link = `https://t.me/share/url?url=${encodeURIComponent(
+    shareUrl
+  )}&text=${encodeURIComponent(text)}`;
+  webApp.openTelegramLink(link);
+  return true;
 }
 
 /** Signal readiness and make the game fill the Telegram viewport. */
