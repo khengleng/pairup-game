@@ -1,38 +1,44 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useLocation } from "wouter";
 import { ShieldCheck } from "lucide-react";
 import { useAuth } from "@/_core/hooks/useAuth";
+import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import {
-  getAuthConfigStatus,
-  getLoginUrl,
-  POST_LOGIN_REDIRECT_KEY,
-} from "@/const";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
 
 export default function AdminLogin() {
   const [location, setLocation] = useLocation();
   const { user, loading } = useAuth();
+  const utils = trpc.useUtils();
   const isSetupLogin = location === "/setup";
-  const authConfig = getAuthConfigStatus();
+  const [password, setPassword] = useState("");
+
+  const loginMutation = trpc.auth.adminLogin.useMutation();
 
   useEffect(() => {
-    if (!user) return;
-    if (user.role === "admin") {
+    if (user?.role === "admin") {
       setLocation("/admin");
     }
   }, [setLocation, user]);
 
-  const handleAdminLogin = () => {
+  const handleLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!password) {
+      toast.error("Enter the admin password");
+      return;
+    }
     try {
-      localStorage.setItem(POST_LOGIN_REDIRECT_KEY, "/admin");
-      window.location.href = getLoginUrl();
+      await loginMutation.mutateAsync({ password });
+      // Refresh auth state so the context picks up the admin session cookie.
+      await utils.auth.me.invalidate();
+      toast.success("Signed in");
+      setLocation("/admin");
     } catch (error) {
       toast.error(
-        error instanceof Error
-          ? error.message
-          : "OAuth is not configured correctly"
+        error instanceof Error ? error.message : "Sign in failed"
       );
     }
   };
@@ -49,8 +55,8 @@ export default function AdminLogin() {
               {isSetupLogin ? "Game Setup Login" : "Admin Login"}
             </h1>
             <p className="text-sm text-gray-600 mt-2">
-              Sign in with an authorized admin account to add themes, arrange
-              games, and manage PairUp.
+              Enter the admin password to add themes, arrange games, and manage
+              PairUp.
             </p>
           </div>
         </div>
@@ -61,21 +67,28 @@ export default function AdminLogin() {
           </div>
         ) : null}
 
-        {!authConfig.isConfigured ? (
-          <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
-            OAuth is not configured yet. Set a real{" "}
-            <span className="font-semibold">VITE_APP_ID</span> in Railway before
-            signing in.
+        <form onSubmit={handleLogin} className="space-y-4">
+          <div>
+            <Label htmlFor="password">Admin Password</Label>
+            <Input
+              id="password"
+              type="password"
+              autoComplete="current-password"
+              placeholder="••••••••"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              required
+            />
           </div>
-        ) : null}
 
-        <Button
-          onClick={handleAdminLogin}
-          disabled={loading || !authConfig.isConfigured}
-          className="w-full btn-primary"
-        >
-          {loading ? "Checking session..." : "Sign In to Setup Games"}
-        </Button>
+          <Button
+            type="submit"
+            disabled={loading || loginMutation.isPending || !password}
+            className="w-full btn-primary"
+          >
+            {loginMutation.isPending ? "Signing in..." : "Sign In"}
+          </Button>
+        </form>
 
         <Button
           type="button"

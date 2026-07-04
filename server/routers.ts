@@ -22,6 +22,13 @@ import {
   telegramOpenId,
 } from "./telegramAuth";
 import {
+  ADMIN_COOKIE,
+  ADMIN_SESSION_MAX_AGE_MS,
+  createAdminSessionToken,
+  isAdminPasswordConfigured,
+  verifyAdminPassword,
+} from "./adminAuth";
+import {
   codeMatches,
   expiryFromNow,
   generateCode,
@@ -200,9 +207,54 @@ export const appRouter = router({
     logout: publicProcedure.mutation(({ ctx }) => {
       const cookieOptions = getSessionCookieOptions(ctx.req);
       ctx.res.clearCookie(COOKIE_NAME, { ...cookieOptions, maxAge: -1 });
+      ctx.res.clearCookie(ADMIN_COOKIE, { ...cookieOptions, maxAge: -1 });
       return {
         success: true,
       } as const;
+    }),
+
+    // Whether standalone password-based admin login is available.
+    adminAuthStatus: publicProcedure.query(() => ({
+      passwordEnabled: isAdminPasswordConfigured(),
+    })),
+
+    // Standalone admin login (no Manus OAuth needed).
+    adminLogin: publicProcedure
+      .input(z.object({ password: z.string().min(1).max(256) }))
+      .mutation(async ({ input, ctx }) => {
+        const ip = getClientIp(ctx.req);
+        if (!rateLimit(`adminLogin:${ip}`, 10, 15 * 60_000).allowed) {
+          throw new TRPCError({
+            code: "TOO_MANY_REQUESTS",
+            message: "Too many attempts. Please try again later.",
+          });
+        }
+        if (!isAdminPasswordConfigured()) {
+          throw new TRPCError({
+            code: "PRECONDITION_FAILED",
+            message: "Admin password login is not configured (set ADMIN_PASSWORD).",
+          });
+        }
+        if (!verifyAdminPassword(input.password)) {
+          throw new TRPCError({
+            code: "UNAUTHORIZED",
+            message: "Incorrect password.",
+          });
+        }
+
+        const token = await createAdminSessionToken();
+        const cookieOptions = getSessionCookieOptions(ctx.req);
+        ctx.res.cookie(ADMIN_COOKIE, token, {
+          ...cookieOptions,
+          maxAge: ADMIN_SESSION_MAX_AGE_MS,
+        });
+        return { success: true };
+      }),
+
+    adminLogout: publicProcedure.mutation(({ ctx }) => {
+      const cookieOptions = getSessionCookieOptions(ctx.req);
+      ctx.res.clearCookie(ADMIN_COOKIE, { ...cookieOptions, maxAge: -1 });
+      return { success: true } as const;
     }),
   }),
 
