@@ -166,6 +166,14 @@ export default function Game() {
   };
   const gridClass = gridClassMap[game.gridSize] || "grid-cols-4";
 
+  // Scale text with grid density so definitions stay readable on small screens.
+  const cardTextClass =
+    game.gridSize === "8x8"
+      ? "text-[9px] leading-tight sm:text-xs"
+      : game.gridSize === "6x6"
+        ? "text-[11px] leading-tight sm:text-sm"
+        : "text-sm leading-snug sm:text-base";
+
   const totalPairs = cards.length / 2;
   const matchedPairs = matched.length / 2;
   const progress = totalPairs > 0 ? (matchedPairs / totalPairs) * 100 : 0;
@@ -239,8 +247,8 @@ export default function Game() {
         </div>
 
         {/* Game Board */}
-        <div className="bg-white rounded-xl shadow-lg p-8 mb-8">
-          <div className={`grid ${gridClass} gap-4`}>
+        <div className="bg-white rounded-xl shadow-lg p-2 sm:p-6 mb-8">
+          <div className={`grid ${gridClass} gap-1.5 sm:gap-3`}>
             {cards.map((card, idx) => (
               <button
                 key={idx}
@@ -248,7 +256,7 @@ export default function Game() {
                 disabled={
                   gameCompleted || flipped.length === 2 || matched.includes(idx)
                 }
-                className={`aspect-square rounded-lg font-semibold text-center flex items-center justify-center p-2 transition-all duration-300 cursor-pointer ${
+                className={`aspect-square rounded-lg font-semibold text-center flex items-center justify-center p-1 overflow-hidden transition-all duration-300 cursor-pointer ${
                   matched.includes(idx)
                     ? "bg-gradient-to-br from-purple-100 to-green-50 border-2 border-green-300 text-gray-900"
                     : flipped.includes(idx)
@@ -257,11 +265,12 @@ export default function Game() {
                 }`}
               >
                 <span
-                  className={`text-sm md:text-base break-words transition-all ${
+                  className={`${cardTextClass} w-full break-words hyphens-auto transition-all ${
                     flipped.includes(idx) || matched.includes(idx)
                       ? "opacity-100"
                       : "opacity-0"
                   }`}
+                  lang="en"
                 >
                   {card.text}
                 </span>
