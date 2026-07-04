@@ -79,6 +79,15 @@ export const leads = mysqlTable("leads", {
   score: int("score"),
   theme: varchar("theme", { length: 255 }),
   gridSize: mysqlEnum("gridSize", ["4x4", "6x6", "8x8"]),
+  /** Email verification: a lead is only "qualified" once verified. */
+  verified: boolean("verified").default(false).notNull(),
+  verifiedAt: timestamp("verifiedAt"),
+  /** Timestamp the player gave marketing consent (PDPA trail). */
+  consentAt: timestamp("consentAt"),
+  /** SHA-256 hex of the current verification code (never store the code itself). */
+  verificationCodeHash: varchar("verificationCodeHash", { length: 64 }),
+  verificationExpiresAt: timestamp("verificationExpiresAt"),
+  verificationAttempts: int("verificationAttempts").default(0).notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 });
 

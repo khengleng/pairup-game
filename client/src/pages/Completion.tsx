@@ -28,13 +28,20 @@ export default function Completion() {
     { enabled: !!game && !!user }
   );
   const submitLeadMutation = trpc.lead.submit.useMutation();
+  const verifyLeadMutation = trpc.lead.verify.useMutation();
+  const resendCodeMutation = trpc.lead.resend.useMutation();
 
   const [formData, setFormData] = useState({
     name: user?.name || "",
     email: user?.email || "",
     company: "",
+    website: "", // honeypot — must stay empty
   });
+  const [consent, setConsent] = useState(false);
   const [submitted, setSubmitted] = useState(false);
+  // Email-verification step state.
+  const [pendingLeadId, setPendingLeadId] = useState<number | null>(null);
+  const [code, setCode] = useState("");
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
@@ -49,8 +56,13 @@ export default function Completion() {
       return;
     }
 
+    if (!consent) {
+      toast.error("Please agree to be contacted before submitting");
+      return;
+    }
+
     try {
-      await submitLeadMutation.mutateAsync({
+      const result = await submitLeadMutation.mutateAsync({
         name: formData.name,
         email: formData.email,
         company: formData.company,
@@ -58,12 +70,54 @@ export default function Completion() {
         score: totalScore,
         theme: game?.theme,
         gridSize: game?.gridSize,
+        consent: true,
+        website: formData.website || undefined,
       });
-      setSubmitted(true);
-      toast.success("Thank you! Your information has been saved.");
+
+      if (result.verificationRequired) {
+        setPendingLeadId(result.leadId);
+        toast.success("We emailed you a 6-digit code. Enter it to confirm.");
+      } else {
+        setSubmitted(true);
+        toast.success("Thank you! Your information has been saved.");
+      }
     } catch (error) {
       console.error("Failed to submit lead:", error);
       toast.error("Failed to submit. Please try again.");
+    }
+  };
+
+  const handleVerifyCode = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (pendingLeadId === null) return;
+    if (code.trim().length !== 6) {
+      toast.error("Enter the 6-digit code from your email");
+      return;
+    }
+
+    try {
+      await verifyLeadMutation.mutateAsync({
+        leadId: pendingLeadId,
+        code: code.trim(),
+      });
+      setSubmitted(true);
+      toast.success("Email verified — you're entered!");
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "Verification failed"
+      );
+    }
+  };
+
+  const handleResendCode = async () => {
+    if (pendingLeadId === null) return;
+    try {
+      await resendCodeMutation.mutateAsync({ leadId: pendingLeadId });
+      toast.success("A new code is on its way.");
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "Could not resend the code"
+      );
     }
   };
 
@@ -196,7 +250,7 @@ export default function Completion() {
         </Card>
 
         {/* Lead Capture Form */}
-        {!submitted ? (
+        {!submitted && pendingLeadId === null ? (
           <Card className="p-8 space-y-6">
             <div className="space-y-2">
               <h3 className="heading-md text-center">Enter to Win!</h3>
@@ -245,14 +299,98 @@ export default function Completion() {
                 />
               </div>
 
+              {/* Honeypot — hidden from real users; bots fill it and get trapped. */}
+              <input
+                type="text"
+                name="website"
+                tabIndex={-1}
+                autoComplete="off"
+                aria-hidden="true"
+                value={formData.website}
+                onChange={handleInputChange}
+                style={{
+                  position: "absolute",
+                  left: "-9999px",
+                  width: "1px",
+                  height: "1px",
+                  opacity: 0,
+                }}
+              />
+
+              <label className="flex items-start gap-2 text-sm text-gray-600">
+                <input
+                  type="checkbox"
+                  checked={consent}
+                  onChange={(e) => setConsent(e.target.checked)}
+                  className="mt-1"
+                  required
+                />
+                <span>
+                  I agree to be contacted about PairUp and related products, and
+                  consent to my details being stored for this purpose.
+                </span>
+              </label>
+
               <Button
                 type="submit"
-                disabled={submitLeadMutation.isPending}
+                disabled={submitLeadMutation.isPending || !consent}
                 className="w-full btn-primary"
               >
                 {submitLeadMutation.isPending ? "Submitting..." : "Submit & Enter Prize Draw"}
               </Button>
             </form>
+          </Card>
+        ) : !submitted && pendingLeadId !== null ? (
+          <Card className="p-8 space-y-6">
+            <div className="space-y-2">
+              <h3 className="heading-md text-center">Verify your email</h3>
+              <p className="text-center text-gray-600">
+                We sent a 6-digit code to{" "}
+                <span className="font-medium">{formData.email}</span>. Enter it
+                below to confirm your entry.
+              </p>
+            </div>
+
+            <form onSubmit={handleVerifyCode} className="space-y-4">
+              <div>
+                <Label htmlFor="code">Verification Code</Label>
+                <Input
+                  id="code"
+                  name="code"
+                  type="text"
+                  inputMode="numeric"
+                  autoComplete="one-time-code"
+                  maxLength={6}
+                  placeholder="123456"
+                  value={code}
+                  onChange={(e) =>
+                    setCode(e.target.value.replace(/\D/g, "").slice(0, 6))
+                  }
+                  className="text-center text-2xl tracking-[0.5em]"
+                  required
+                />
+              </div>
+
+              <Button
+                type="submit"
+                disabled={verifyLeadMutation.isPending || code.length !== 6}
+                className="w-full btn-primary"
+              >
+                {verifyLeadMutation.isPending ? "Verifying..." : "Verify & Enter"}
+              </Button>
+            </form>
+
+            <div className="text-center text-sm text-gray-600">
+              Didn't get it?{" "}
+              <button
+                type="button"
+                onClick={handleResendCode}
+                disabled={resendCodeMutation.isPending}
+                className="text-purple-600 font-medium hover:underline disabled:opacity-50"
+              >
+                Resend code
+              </button>
+            </div>
           </Card>
         ) : (
           <Card className="p-8 text-center space-y-4">

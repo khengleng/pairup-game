@@ -103,6 +103,11 @@ Available pre-defined system envs:
 - `VITE_FRONTEND_FORGE_API_KEY`: Bearer token for frontend access to Manus built-in apis
 - `VITE_FRONTEND_FORGE_API_URL`: Manus built-in apis URL for frontend
 
+Lead email verification (Resend — see `server/email.ts`). If unset, lead capture skips verification:
+- `RESEND_API_KEY`: Resend API key (enables sending verification codes)
+- `RESEND_FROM_EMAIL`: sender address on a domain verified in Resend
+- `RESEND_FROM_NAME`: optional sender display name (defaults to `PairUp`)
+
 Do not edit these directly in code or commit `.env` files.
 The envs above are system envs, when use env in website code, refer `server/_core/env.ts` for available list.
 

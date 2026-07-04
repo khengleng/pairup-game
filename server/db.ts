@@ -1,4 +1,4 @@
-import { eq, and, desc, asc, inArray } from "drizzle-orm";
+import { eq, and, desc, asc, inArray, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import {
   InsertUser,
@@ -26,6 +26,30 @@ export async function getDb() {
     }
   }
   return _db;
+}
+
+/**
+ * Apply any pending Drizzle migrations at server startup.
+ *
+ * Idempotent: Drizzle tracks applied migrations in `__drizzle_migrations`, so
+ * only new migration files run. Safe to call on every boot. Failures are logged
+ * but do not crash the server — check the logs if a schema-dependent feature
+ * misbehaves after deploy.
+ */
+export async function runMigrations(): Promise<void> {
+  const db = await getDb();
+  if (!db) {
+    console.warn("[Database] Skipping migrations: database not available");
+    return;
+  }
+
+  try {
+    const { migrate } = await import("drizzle-orm/mysql2/migrator");
+    await migrate(db, { migrationsFolder: "drizzle" });
+    console.log("[Database] Migrations up to date");
+  } catch (error) {
+    console.error("[Database] Migration failed:", error);
+  }
 }
 
 export async function upsertUser(user: InsertUser): Promise<void> {
@@ -231,7 +255,65 @@ export async function createLead(leadData: typeof leads.$inferInsert) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
-  return await db.insert(leads).values(leadData);
+  const result = await db.insert(leads).values(leadData);
+  const insertId =
+    (result as any)?.[0]?.insertId ?? (result as any)?.insertId ?? 0;
+  return { insertId } as { insertId: number };
+}
+
+export async function getLeadById(leadId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  const result = await db
+    .select()
+    .from(leads)
+    .where(eq(leads.id, leadId))
+    .limit(1);
+  return result.length > 0 ? result[0] : null;
+}
+
+export async function setLeadVerification(
+  leadId: number,
+  codeHash: string,
+  expiresAt: Date
+) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  return await db
+    .update(leads)
+    .set({
+      verificationCodeHash: codeHash,
+      verificationExpiresAt: expiresAt,
+      verificationAttempts: 0,
+    })
+    .where(eq(leads.id, leadId));
+}
+
+export async function incrementLeadVerificationAttempts(leadId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  return await db
+    .update(leads)
+    .set({ verificationAttempts: sql`${leads.verificationAttempts} + 1` })
+    .where(eq(leads.id, leadId));
+}
+
+export async function markLeadVerified(leadId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  return await db
+    .update(leads)
+    .set({
+      verified: true,
+      verifiedAt: new Date(),
+      verificationCodeHash: null,
+      verificationExpiresAt: null,
+    })
+    .where(eq(leads.id, leadId));
 }
 
 export async function getAllLeads() {

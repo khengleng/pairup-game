@@ -13,6 +13,27 @@ import {
   type CardPair,
   type GridSizeValue,
 } from "@shared/gameConfig";
+import { validateAndNormalizeCompletion } from "./gameLogic";
+import { rateLimit } from "./rateLimit";
+import { isEmailConfigured, sendEmail } from "./email";
+import {
+  codeMatches,
+  expiryFromNow,
+  generateCode,
+  hashCode,
+  isExpired,
+  MAX_VERIFICATION_ATTEMPTS,
+  verificationEmail,
+} from "./leadVerification";
+
+/** Best-effort client IP for rate limiting (respects a single proxy hop). */
+function getClientIp(req: { headers: Record<string, unknown>; socket?: { remoteAddress?: string } }): string {
+  const forwarded = req.headers["x-forwarded-for"];
+  if (typeof forwarded === "string" && forwarded.length > 0) {
+    return forwarded.split(",")[0].trim();
+  }
+  return req.socket?.remoteAddress ?? "unknown";
+}
 
 const themeSchema = z.string().trim().min(1).max(255);
 const gridSizeSchema = z.custom<GridSizeValue>(
@@ -36,6 +57,15 @@ const createThemeSchema = z.object({
 const guestGames = new Map<number, Game>();
 let nextGuestGameId = -1;
 
+/** Evict stale guest games so the in-memory map cannot grow unbounded. */
+const GUEST_GAME_TTL_MS = 2 * 60 * 60 * 1000;
+function pruneGuestGames() {
+  const cutoff = Date.now() - GUEST_GAME_TTL_MS;
+  guestGames.forEach((game, id) => {
+    if (game.createdAt.getTime() < cutoff) guestGames.delete(id);
+  });
+}
+
 type AvailableGameTheme = {
   id: string;
   databaseId?: number;
@@ -48,6 +78,7 @@ type AvailableGameTheme = {
 };
 
 function createGuestGame(gameData: Omit<Game, "id" | "createdAt">): Game {
+  pruneGuestGames();
   const game: Game = {
     ...gameData,
     id: nextGuestGameId--,
@@ -87,16 +118,36 @@ async function getAvailableGameThemes(includeDisabled = false) {
 
   try {
     const storedThemes = await db.getStoredGameThemes(includeDisabled);
+    // Key on the lowercased name so a stored theme overrides a bundled one of
+    // the same name regardless of case (matches createTheme's dedup check).
     const themesByName = new Map<string, AvailableGameTheme>(
-      staticThemes.map(theme => [theme.name, theme])
+      staticThemes.map(theme => [theme.name.toLowerCase(), theme])
     );
     for (const theme of storedThemes) {
-      themesByName.set(theme.name, theme);
+      themesByName.set(theme.name.toLowerCase(), theme);
     }
     return Array.from(themesByName.values());
   } catch (error) {
     console.warn("[GameConfig] Falling back to bundled themes:", error);
     return staticThemes;
+  }
+}
+
+/** Notify the owner of a captured lead (best-effort; never throws). */
+async function notifyOwnerOfLead(lead: {
+  name: string;
+  company: string;
+  email: string;
+  score?: number;
+  theme?: string;
+}) {
+  try {
+    await notifyOwner({
+      title: "🎮 New PairUp Lead Captured!",
+      content: `New player: ${lead.name} from ${lead.company} (${lead.email})\nScore: ${lead.score ?? "N/A"} | Theme: ${lead.theme ?? "N/A"}`,
+    });
+  } catch (error) {
+    console.error("Failed to notify owner of new lead:", error);
   }
 }
 
@@ -208,6 +259,16 @@ export const appRouter = router({
         })
       )
       .mutation(async ({ input, ctx }) => {
+        // Throttle game creation per IP so the guest-game store / games table
+        // can't be flooded by a scripted client.
+        const ip = getClientIp(ctx.req);
+        if (!rateLimit(`createGame:${ip}`, 30, 60_000).allowed) {
+          throw new TRPCError({
+            code: "TOO_MANY_REQUESTS",
+            message: "Too many games started. Please slow down.",
+          });
+        }
+
         await requireTheme(input.theme);
 
         const gameData = {
@@ -221,7 +282,7 @@ export const appRouter = router({
 
         try {
           const result = await db.createGame(gameData);
-          return { gameId: (result as any).insertId || 0 };
+          return { gameId: result.insertId || 0 };
         } catch (error) {
           if (ctx.user?.id) throw error;
 
@@ -237,9 +298,9 @@ export const appRouter = router({
     completeGame: publicProcedure
       .input(
         z.object({
-          gameId: z.number(),
-          moves: z.number(),
-          timeSeconds: z.number(),
+          gameId: z.number().int(),
+          moves: z.number().int().nonnegative(),
+          timeSeconds: z.number().int().nonnegative(),
         })
       )
       .mutation(async ({ input, ctx }) => {
@@ -249,14 +310,30 @@ export const appRouter = router({
             : await db.getGameById(input.gameId);
         if (!game) throw new TRPCError({ code: "NOT_FOUND" });
 
+        // Reject re-submissions: a game may only be completed once.
+        if (game.completed) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "This game has already been completed.",
+          });
+        }
+
+        // Server-authoritative scoring: the client's numbers are only trusted
+        // after clearing the physical checks in validateAndNormalizeCompletion,
+        // using the server-measured wall clock since the game was created.
+        const elapsedSeconds =
+          (Date.now() - game.createdAt.getTime()) / 1000;
+        const { moves, timeSeconds } = validateAndNormalizeCompletion({
+          gridSize: game.gridSize,
+          moves: input.moves,
+          timeSeconds: input.timeSeconds,
+          elapsedSeconds,
+        });
+
         if (input.gameId < 0) {
-          updateGuestGameScore(input.gameId, input.moves, input.timeSeconds);
+          updateGuestGameScore(input.gameId, moves, timeSeconds);
         } else {
-          await db.updateGameScore(
-            input.gameId,
-            input.moves,
-            input.timeSeconds
-          );
+          await db.updateGameScore(input.gameId, moves, timeSeconds);
         }
 
         // Update user's best score if authenticated
@@ -265,20 +342,21 @@ export const appRouter = router({
             ctx.user.id,
             game.theme,
             game.gridSize,
-            input.moves,
-            input.timeSeconds
+            moves,
+            timeSeconds
           );
           await db.updateLeaderboard(
             ctx.user.id,
             ctx.user.name || undefined,
             game.theme,
             game.gridSize,
-            input.moves,
-            input.timeSeconds
+            moves,
+            timeSeconds
           );
         }
 
-        return { success: true };
+        // Return the validated values so the client shows the recorded score.
+        return { success: true, moves, timeSeconds, totalScore: moves + timeSeconds };
       }),
 
     getGame: publicProcedure.input(z.number()).query(async ({ input }) => {
@@ -320,14 +398,41 @@ export const appRouter = router({
           score: z.number().optional(),
           theme: themeSchema.optional(),
           gridSize: gridSizeSchema.optional(),
+          consent: z.literal(true, {
+            message: "Consent is required to submit your details.",
+          }),
+          // Honeypot: real users never fill this hidden field; bots do.
+          // Accept any value here and silently trap it in the handler.
+          website: z.string().optional(),
         })
       )
-      .mutation(async ({ input }) => {
+      .mutation(async ({ input, ctx }) => {
+        // Bot trap: pretend success without recording or notifying.
+        if (input.website) {
+          return { success: true, leadId: 0, verificationRequired: false };
+        }
+
+        // Rate limit by IP and by email to blunt spam / notification floods.
+        const ip = getClientIp(ctx.req);
+        const email = input.email.toLowerCase();
+        if (
+          !rateLimit(`lead:ip:${ip}`, 5, 60_000).allowed ||
+          !rateLimit(`lead:email:${email}`, 3, 60 * 60_000).allowed
+        ) {
+          throw new TRPCError({
+            code: "TOO_MANY_REQUESTS",
+            message: "Too many submissions. Please try again later.",
+          });
+        }
+
         if (input.theme) {
           await requireTheme(input.theme);
         }
 
-        const leadData = {
+        const emailEnabled = isEmailConfigured();
+        const code = generateCode();
+
+        const { insertId } = await db.createLead({
           name: input.name,
           email: input.email,
           company: input.company,
@@ -335,21 +440,136 @@ export const appRouter = router({
           score: input.score,
           theme: input.theme,
           gridSize: input.gridSize,
-        };
+          consentAt: new Date(),
+          // Only leads that verify their email count as qualified.
+          verified: !emailEnabled,
+          verifiedAt: emailEnabled ? null : new Date(),
+          verificationCodeHash: emailEnabled ? hashCode(code) : null,
+          verificationExpiresAt: emailEnabled ? expiryFromNow() : null,
+        });
 
-        const result = await db.createLead(leadData);
-
-        // Notify owner of new lead
-        try {
-          await notifyOwner({
-            title: "🎮 New PairUp Lead Captured!",
-            content: `New player: ${input.name} from ${input.company} (${input.email})\nScore: ${input.score || "N/A"} | Theme: ${input.theme || "N/A"}`,
-          });
-        } catch (error) {
-          console.error("Failed to notify owner of new lead:", error);
+        // Email not configured (e.g. local dev): fall back to the old behavior —
+        // the lead is trusted immediately and the owner is notified.
+        if (!emailEnabled) {
+          await notifyOwnerOfLead(input);
+          return { success: true, leadId: insertId, verificationRequired: false };
         }
 
-        return { success: true, leadId: (result as any).insertId || 0 };
+        try {
+          const mail = verificationEmail(code);
+          await sendEmail({ to: input.email, ...mail });
+        } catch (error) {
+          console.error("Failed to send verification email:", error);
+          throw new TRPCError({
+            code: "INTERNAL_SERVER_ERROR",
+            message: "Could not send the verification email. Please try again.",
+          });
+        }
+
+        return { success: true, leadId: insertId, verificationRequired: true };
+      }),
+
+    verify: publicProcedure
+      .input(
+        z.object({
+          leadId: z.number().int().positive(),
+          code: z.string().trim().length(6),
+        })
+      )
+      .mutation(async ({ input, ctx }) => {
+        const ip = getClientIp(ctx.req);
+        if (
+          !rateLimit(`verify:ip:${ip}`, 20, 60_000).allowed ||
+          !rateLimit(`verify:lead:${input.leadId}`, 10, 60 * 60_000).allowed
+        ) {
+          throw new TRPCError({
+            code: "TOO_MANY_REQUESTS",
+            message: "Too many attempts. Please try again later.",
+          });
+        }
+
+        const lead = await db.getLeadById(input.leadId);
+        if (!lead) throw new TRPCError({ code: "NOT_FOUND" });
+
+        // Idempotent: already-verified leads just succeed.
+        if (lead.verified) return { success: true };
+
+        if (lead.verificationAttempts >= MAX_VERIFICATION_ATTEMPTS) {
+          throw new TRPCError({
+            code: "TOO_MANY_REQUESTS",
+            message: "Too many incorrect attempts. Request a new code.",
+          });
+        }
+
+        if (isExpired(lead.verificationExpiresAt)) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "This code has expired. Request a new one.",
+          });
+        }
+
+        if (!codeMatches(input.code, lead.verificationCodeHash)) {
+          await db.incrementLeadVerificationAttempts(lead.id);
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Incorrect code. Please try again.",
+          });
+        }
+
+        await db.markLeadVerified(lead.id);
+
+        // Notify the owner only now that the lead is a verified, qualified lead.
+        await notifyOwnerOfLead({
+          name: lead.name,
+          company: lead.company,
+          email: lead.email,
+          score: lead.score ?? undefined,
+          theme: lead.theme ?? undefined,
+        });
+
+        return { success: true };
+      }),
+
+    resend: publicProcedure
+      .input(z.object({ leadId: z.number().int().positive() }))
+      .mutation(async ({ input, ctx }) => {
+        const ip = getClientIp(ctx.req);
+        if (
+          !rateLimit(`resend:ip:${ip}`, 5, 60_000).allowed ||
+          !rateLimit(`resend:lead:${input.leadId}`, 3, 10 * 60_000).allowed
+        ) {
+          throw new TRPCError({
+            code: "TOO_MANY_REQUESTS",
+            message: "Please wait before requesting another code.",
+          });
+        }
+
+        if (!isEmailConfigured()) {
+          throw new TRPCError({
+            code: "PRECONDITION_FAILED",
+            message: "Email verification is not enabled.",
+          });
+        }
+
+        const lead = await db.getLeadById(input.leadId);
+        if (!lead) throw new TRPCError({ code: "NOT_FOUND" });
+        if (lead.verified) return { success: true };
+
+        const code = generateCode();
+        await db.setLeadVerification(lead.id, hashCode(code), expiryFromNow());
+
+        try {
+          const mail = verificationEmail(code);
+          await sendEmail({ to: lead.email, ...mail });
+        } catch (error) {
+          console.error("Failed to resend verification email:", error);
+          throw new TRPCError({
+            code: "INTERNAL_SERVER_ERROR",
+            message: "Could not resend the verification email.",
+          });
+        }
+
+        return { success: true };
       }),
 
     getAll: protectedProcedure.query(async ({ ctx }) => {

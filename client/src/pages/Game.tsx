@@ -118,12 +118,16 @@ export default function Game() {
     if (!gameId) return;
 
     try {
-      await completeGameMutation.mutateAsync({
+      // The server validates and normalizes the score; use its authoritative
+      // values so the completion screen matches what was recorded.
+      const result = await completeGameMutation.mutateAsync({
         gameId,
         moves,
         timeSeconds: seconds,
       });
-      setLocation(`/completion/${gameId}?moves=${moves}&time=${seconds}`);
+      setLocation(
+        `/completion/${gameId}?moves=${result.moves}&time=${result.timeSeconds}`
+      );
     } catch (error) {
       console.error("Failed to complete game:", error);
     }
