@@ -6,6 +6,7 @@ import { createRoot } from "react-dom/client";
 import superjson from "superjson";
 import App from "./App";
 import { getLoginUrl } from "./const";
+import { initTelegramWebApp } from "./lib/telegram";
 import "./index.css";
 
 const queryClient = new QueryClient();
@@ -70,6 +71,7 @@ const trpcClient = trpc.createClient({
 });
 
 loadAnalytics();
+initTelegramWebApp();
 
 createRoot(document.getElementById("root")!).render(
   <trpc.Provider client={trpcClient} queryClient={queryClient}>

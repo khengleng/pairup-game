@@ -9,6 +9,7 @@ import { appRouter } from "../routers";
 import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
 import { runMigrations } from "../db";
+import { registerTelegramBot, setupTelegramWebhook } from "../telegram";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -40,6 +41,7 @@ async function startServer() {
   app.use(express.urlencoded({ limit: "50mb", extended: true }));
   registerStorageProxy(app);
   registerOAuthRoutes(app);
+  registerTelegramBot(app);
   // tRPC API
   app.use(
     "/api/trpc",
@@ -64,6 +66,10 @@ async function startServer() {
 
   server.listen(port, () => {
     console.log(`Server running on http://localhost:${port}/`);
+    // Register the Telegram webhook + Mini App menu button (best-effort).
+    setupTelegramWebhook().catch(error =>
+      console.error("[Telegram] Setup failed:", error)
+    );
   });
 }
 

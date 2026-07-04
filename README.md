@@ -108,6 +108,10 @@ Lead email verification (Resend — see `server/email.ts`). If unset, lead captu
 - `RESEND_FROM_EMAIL`: sender address on a domain verified in Resend
 - `RESEND_FROM_NAME`: optional sender display name (defaults to `PairUp`)
 
+Telegram Mini App bot (see `server/telegram.ts`). If unset, the bot is disabled:
+- `TELEGRAM_BOT_TOKEN`: bot token from @BotFather (enables the bot + webhook)
+- `PUBLIC_URL`: optional public https base URL; falls back to `RAILWAY_PUBLIC_DOMAIN` (set by Railway)
+
 Do not edit these directly in code or commit `.env` files.
 The envs above are system envs, when use env in website code, refer `server/_core/env.ts` for available list.
 
