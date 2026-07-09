@@ -79,7 +79,7 @@ function playButton(text: string) {
   return {
     text,
     reply_markup: {
-      inline_keyboard: [[{ text: "▶️ Play PairUp", web_app: { url } }]],
+      inline_keyboard: [[{ text: "▶️ Play Games", web_app: { url } }]],
     },
   };
 }
@@ -156,13 +156,13 @@ export async function setupTelegramWebhook(): Promise<void> {
   await callTelegram("setChatMenuButton", {
     menu_button: {
       type: "web_app",
-      text: "Play PairUp",
+      text: "Play Games",
       web_app: { url: base },
     },
   });
 
   await callTelegram("setMyCommands", {
-    commands: [{ command: "start", description: "Play PairUp" }],
+    commands: [{ command: "start", description: "Play Games" }],
   });
 
   console.log(`[Telegram] Bot ready — Mini App at ${base}`);
