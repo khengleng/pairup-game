@@ -7,8 +7,9 @@ import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { Switch } from "@/components/ui/switch";
 import { toast } from "sonner";
-import { ArrowDown, ArrowUp, Lock, Power, PowerOff } from "lucide-react";
+import { ArrowDown, ArrowUp, Lock, Power, PowerOff, Gamepad2 } from "lucide-react";
 
 export default function AdminDashboard() {
   const [, setLocation] = useLocation();
@@ -52,6 +53,20 @@ export default function AdminDashboard() {
     },
     onError: error => {
       toast.error(error.message || "Failed to update theme order");
+    },
+  });
+
+  // Game visibility toggles — controls what the app / Telegram mini app shows.
+  const { data: gamesList } = trpc.games.getEnabled.useQuery(undefined, {
+    enabled: user?.role === "admin",
+  });
+  const setGameEnabledMutation = trpc.games.setEnabled.useMutation({
+    onSuccess: async () => {
+      await utils.games.getEnabled.invalidate();
+      toast.success("Game visibility updated");
+    },
+    onError: error => {
+      toast.error(error.message || "Failed to update game");
     },
   });
 
@@ -203,6 +218,55 @@ export default function AdminDashboard() {
             Back to Home
           </Button>
         </div>
+
+        {/* Game availability — what the Telegram mini app presents */}
+        <Card className="p-6 mb-8">
+          <div className="flex items-center gap-2 mb-1">
+            <Gamepad2 className="w-5 h-5 text-purple-600" />
+            <h3 className="heading-md">Game Availability</h3>
+          </div>
+          <p className="text-sm text-gray-600 mb-4">
+            Choose which games the app and the Telegram mini app present to
+            players. Turning a game off hides it everywhere immediately.
+          </p>
+          <div className="grid gap-3 sm:grid-cols-2">
+            {(gamesList ?? []).map(game => (
+              <div
+                key={game.id}
+                className="flex items-center justify-between gap-4 border border-gray-200 rounded-lg p-4 bg-white"
+              >
+                <div className="min-w-0">
+                  <p className="font-semibold text-gray-900">{game.name}</p>
+                  <p className="text-sm text-gray-600 truncate">
+                    {game.description}
+                  </p>
+                </div>
+                <div className="flex items-center gap-2 flex-shrink-0">
+                  <span
+                    className={`text-xs font-semibold px-2 py-1 rounded-full ${
+                      game.enabled
+                        ? "bg-green-50 text-green-700"
+                        : "bg-gray-100 text-gray-600"
+                    }`}
+                  >
+                    {game.enabled ? "On" : "Off"}
+                  </span>
+                  <Switch
+                    checked={game.enabled}
+                    disabled={setGameEnabledMutation.isPending}
+                    onCheckedChange={checked =>
+                      setGameEnabledMutation.mutate({
+                        id: game.id,
+                        enabled: checked,
+                      })
+                    }
+                    aria-label={`Toggle ${game.name}`}
+                  />
+                </div>
+              </div>
+            ))}
+          </div>
+        </Card>
 
         {/* Admin Title */}
         <div className="mb-8">

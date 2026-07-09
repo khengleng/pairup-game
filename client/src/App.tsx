@@ -9,6 +9,9 @@ import Game from "./pages/Game";
 import Completion from "./pages/Completion";
 import Leaderboard from "./pages/Leaderboard";
 import WalkChallenge from "./pages/WalkChallenge";
+import DiceGame from "./pages/DiceGame";
+import Klaklok from "./pages/Klaklok";
+import PhotoMemory from "./pages/PhotoMemory";
 import AdminDashboard from "./pages/AdminDashboard";
 import AdminLogin from "./pages/AdminLogin";
 
@@ -20,6 +23,9 @@ function Router() {
       <Route path={"/completion/:gameId"} component={Completion} />
       <Route path={"/leaderboard"} component={Leaderboard} />
       <Route path={"/walk"} component={WalkChallenge} />
+      <Route path={"/dice"} component={DiceGame} />
+      <Route path={"/klaklok"} component={Klaklok} />
+      <Route path={"/photos"} component={PhotoMemory} />
       <Route path={"/setup"} component={AdminLogin} />
       <Route path={"/admin/login"} component={AdminLogin} />
       <Route path={"/admin"} component={AdminDashboard} />

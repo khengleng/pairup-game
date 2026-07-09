@@ -28,20 +28,30 @@ export type CardPair = {
   id: number;
   term: string;
   definition: string;
+  /**
+   * When set, this is an *image* pair: both cards of the pair show this icon
+   * (matched by the client icon registry). `term`/`definition` hold the label.
+   */
+  icon?: string;
 };
 
 export type GameTheme = {
   id: string;
   name: string;
   description: string;
+  /**
+   * "words" (default) matches a term with its definition; "images" matches two
+   * identical picture cards. Drives how the client renders each card face.
+   */
+  kind?: "words" | "images";
   pairs: CardPair[];
 };
 
 /**
- * Configurable game themes.
+ * Bundled word-matching themes (term ↔ definition).
  * Add a new object here with at least 32 pairs to make it available in the UI.
  */
-export const GAME_THEMES = [
+const WORD_THEMES = [
   {
     id: "products",
     name: "Products",
@@ -217,6 +227,66 @@ export const GAME_THEMES = [
   },
 ] as const satisfies readonly GameTheme[];
 
+/**
+ * Image-matching theme: match two identical pictures of Cambodian temples,
+ * culture and wildlife. Each entry's `icon` id MUST have a matching component
+ * in the client icon registry (client/src/lib/khmerIcons.tsx → KHMER_ICONS);
+ * keep this list in sync with MEMORY_ICON_IDS there.
+ */
+const CAMBODIA_IMAGE_PAIRS: ReadonlyArray<{ icon: string; label: string }> = [
+  { icon: "angkor-wat", label: "Angkor Wat" },
+  { icon: "bayon-face", label: "Bayon Face" },
+  { icon: "ta-prohm", label: "Ta Prohm" },
+  { icon: "banteay-srei", label: "Banteay Srei" },
+  { icon: "preah-vihear", label: "Preah Vihear" },
+  { icon: "angkor-thom-gate", label: "Angkor Thom Gate" },
+  { icon: "stupa", label: "Stupa" },
+  { icon: "prasat-tower", label: "Prasat Tower" },
+  { icon: "silver-pagoda", label: "Silver Pagoda" },
+  { icon: "independence-monument", label: "Independence Monument" },
+  { icon: "apsara-dancer", label: "Apsara Dancer" },
+  { icon: "monk", label: "Monk" },
+  { icon: "krama-scarf", label: "Krama Scarf" },
+  { icon: "oxcart", label: "Oxcart" },
+  { icon: "pirogue-boat", label: "Pirogue Boat" },
+  { icon: "tuk-tuk", label: "Tuk-Tuk" },
+  { icon: "drum", label: "Skor Drum" },
+  { icon: "khmer-mask", label: "Khmer Mask" },
+  { icon: "lotus", label: "Lotus" },
+  { icon: "incense-holder", label: "Incense" },
+  { icon: "palm-sugar-pot", label: "Palm Sugar" },
+  { icon: "elephant", label: "Elephant" },
+  { icon: "water-buffalo", label: "Water Buffalo" },
+  { icon: "gecko", label: "Gecko" },
+  { icon: "naga-serpent", label: "Naga" },
+  { icon: "garuda", label: "Garuda" },
+  { icon: "hamsa-bird", label: "Hamsa Bird" },
+  { icon: "sugar-palm-tree", label: "Sugar Palm" },
+  { icon: "coconut", label: "Coconut" },
+  { icon: "rice-bowl", label: "Rice Bowl" },
+  { icon: "jasmine-flower", label: "Jasmine" },
+  { icon: "kouprey", label: "Kouprey" },
+];
+
+const CAMBODIA_THEME: GameTheme = {
+  id: "cambodia",
+  name: "Cambodia",
+  kind: "images",
+  description: "Match the temples, culture & wildlife of Cambodia",
+  pairs: CAMBODIA_IMAGE_PAIRS.map((entry, index) => ({
+    id: index + 1,
+    term: entry.label,
+    definition: entry.label,
+    icon: entry.icon,
+  })),
+};
+
+/**
+ * All bundled themes shown in the UI. The Cambodia image theme leads so new
+ * players see the picture-matching game first (words are harder to parse).
+ */
+export const GAME_THEMES: readonly GameTheme[] = [CAMBODIA_THEME, ...WORD_THEMES];
+
 export type GridSize = keyof typeof GRID_SIZES;
 export type GridSizeValue = (typeof GRID_SIZES)[GridSize];
 
@@ -262,17 +332,37 @@ export function getCardPairsForTheme(
   return themePairs.slice(0, pairsNeeded);
 }
 
+export type DeckCard = {
+  pairId: number;
+  text: string;
+  /** Icon id for image pairs; absent for word pairs. */
+  icon?: string;
+  isMatch: boolean;
+};
+
+/**
+ * Expand a pair into its two face-up cards. Word pairs become a term card and a
+ * definition card; image pairs become two identical picture cards.
+ */
+function pairToCards(pair: CardPair): [DeckCard, DeckCard] {
+  if (pair.icon) {
+    return [
+      { pairId: pair.id, text: pair.term, icon: pair.icon, isMatch: false },
+      { pairId: pair.id, text: pair.definition, icon: pair.icon, isMatch: false },
+    ];
+  }
+  return [
+    { pairId: pair.id, text: pair.term, isMatch: false },
+    { pairId: pair.id, text: pair.definition, isMatch: false },
+  ];
+}
+
 /**
  * Create shuffled deck of cards from pairs
- * Each pair appears twice (term and definition)
+ * Each pair appears twice (term and definition, or two identical images)
  */
-export function createShuffledDeck(pairs: CardPair[]) {
-  const deck: Array<{ pairId: number; text: string; isMatch: boolean }> = [];
-
-  pairs.forEach(pair => {
-    deck.push({ pairId: pair.id, text: pair.term, isMatch: false });
-    deck.push({ pairId: pair.id, text: pair.definition, isMatch: false });
-  });
+export function createShuffledDeck(pairs: CardPair[]): DeckCard[] {
+  const deck: DeckCard[] = pairs.flatMap(pairToCards);
 
   // Fisher-Yates shuffle
   for (let i = deck.length - 1; i > 0; i--) {
@@ -310,12 +400,8 @@ export function mulberry32(seed: number): () => number {
 }
 
 /** Deterministic deck shuffle from a seed — same seed → same board. */
-export function createSeededDeck(pairs: CardPair[], seed: number) {
-  const deck: Array<{ pairId: number; text: string; isMatch: boolean }> = [];
-  pairs.forEach(pair => {
-    deck.push({ pairId: pair.id, text: pair.term, isMatch: false });
-    deck.push({ pairId: pair.id, text: pair.definition, isMatch: false });
-  });
+export function createSeededDeck(pairs: CardPair[], seed: number): DeckCard[] {
+  const deck: DeckCard[] = pairs.flatMap(pairToCards);
 
   const rand = mulberry32(seed);
   for (let i = deck.length - 1; i > 0; i--) {

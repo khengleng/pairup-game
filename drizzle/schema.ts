@@ -235,3 +235,46 @@ export const dailyWalks = mysqlTable("dailyWalks", {
 
 export type DailyWalk = typeof dailyWalks.$inferSelect;
 export type InsertDailyWalk = typeof dailyWalks.$inferInsert;
+
+/**
+ * Aggregate stats for the shake-to-roll games (Dice & Klaklok) — one row per
+ * player per game, backing the all-time leaderboard. Rolls are generated
+ * server-side, so these totals can't be gamed by the client.
+ * Uniqueness on (userId, game) is enforced in application code (see db.ts),
+ * matching the dailyWalks pattern.
+ */
+export const shakeStats = mysqlTable("shakeStats", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull(),
+  playerName: varchar("playerName", { length: 255 }),
+  game: mysqlEnum("game", ["dice", "klaklok"]).notNull(),
+  /** Highest score from a single roll. */
+  bestScore: int("bestScore").default(0).notNull(),
+  /** Number of rolls the player has made. */
+  totalRolls: int("totalRolls").default(0).notNull(),
+  /** Sum of every roll's score. */
+  totalScore: int("totalScore").default(0).notNull(),
+  /** Headline wins: doubles (dice) / three-of-a-kind (klaklok). */
+  jackpots: int("jackpots").default(0).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type ShakeStats = typeof shakeStats.$inferSelect;
+export type InsertShakeStats = typeof shakeStats.$inferInsert;
+
+/**
+ * Admin-managed on/off switches for each game the app (and the Telegram mini
+ * app) presents. One row per game slug; a missing row means "enabled" (the
+ * bundled default), so the table only stores admin overrides.
+ */
+export const appGames = mysqlTable("appGames", {
+  id: int("id").autoincrement().primaryKey(),
+  slug: varchar("slug", { length: 64 }).notNull().unique(),
+  enabled: boolean("enabled").default(true).notNull(),
+  sortOrder: int("sortOrder").default(0).notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type AppGame = typeof appGames.$inferSelect;
+export type InsertAppGame = typeof appGames.$inferInsert;

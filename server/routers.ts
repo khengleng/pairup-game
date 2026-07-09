@@ -33,6 +33,13 @@ import {
 import { getBotShareUrl } from "./telegram";
 import { validateWalkSteps, getDailyStepGoal } from "./walkLogic";
 import {
+  rollDice,
+  rollKlaklok,
+  isDiceJackpot,
+  isKlaklokJackpot,
+} from "@shared/shakeLogic";
+import { GAME_CATALOG, isGameId, resolveGameToggles } from "@shared/games";
+import {
   codeMatches,
   expiryFromNow,
   generateCode,
@@ -683,6 +690,110 @@ export const appRouter = router({
       .query(async ({ input }) => {
         const todayKey = getDailyDateKey(new Date());
         return await db.getWalkLeaderboard(todayKey, input.limit);
+      }),
+  }),
+
+  // Shake-to-roll games (Dice & Klaklok). Rolls are generated server-side so
+  // the leaderboard can't be gamed by a client reporting its own results.
+  shake: router({
+    rollDice: publicProcedure
+      .input(z.object({ initData: z.string().optional() }))
+      .mutation(async ({ input, ctx }) => {
+        const ip = getClientIp(ctx.req);
+        if (!rateLimit(`shakeRoll:${ip}`, 120, 60_000).allowed) {
+          throw new TRPCError({
+            code: "TOO_MANY_REQUESTS",
+            message: "Too many rolls. Please slow down.",
+          });
+        }
+        const roll = rollDice();
+        const player = ctx.user ?? (await resolveTelegramUser(input.initData));
+        const stats = player?.id
+          ? await db.recordShakeRoll({
+              userId: player.id,
+              playerName: player.name || undefined,
+              game: "dice",
+              score: roll.total,
+              isJackpot: isDiceJackpot(roll),
+            })
+          : null;
+        return { roll, stats };
+      }),
+
+    rollKlaklok: publicProcedure
+      .input(z.object({ initData: z.string().optional() }))
+      .mutation(async ({ input, ctx }) => {
+        const ip = getClientIp(ctx.req);
+        if (!rateLimit(`shakeRoll:${ip}`, 120, 60_000).allowed) {
+          throw new TRPCError({
+            code: "TOO_MANY_REQUESTS",
+            message: "Too many rolls. Please slow down.",
+          });
+        }
+        const roll = rollKlaklok();
+        const player = ctx.user ?? (await resolveTelegramUser(input.initData));
+        const stats = player?.id
+          ? await db.recordShakeRoll({
+              userId: player.id,
+              playerName: player.name || undefined,
+              game: "klaklok",
+              score: roll.score,
+              isJackpot: isKlaklokJackpot(roll),
+            })
+          : null;
+        return { roll, stats };
+      }),
+
+    getMyStats: publicProcedure
+      .input(
+        z.object({
+          game: z.enum(["dice", "klaklok"]),
+          initData: z.string().optional(),
+        })
+      )
+      .query(async ({ input, ctx }) => {
+        const player = ctx.user ?? (await resolveTelegramUser(input.initData));
+        if (!player?.id) return { identified: false, stats: null };
+        const stats = await db.getShakeStats(player.id, input.game);
+        return { identified: true, stats };
+      }),
+
+    getLeaderboard: publicProcedure
+      .input(
+        z.object({
+          game: z.enum(["dice", "klaklok"]),
+          limit: z.number().int().min(1).max(100).default(20),
+        })
+      )
+      .query(async ({ input }) => {
+        return await db.getShakeLeaderboard(input.game, input.limit);
+      }),
+  }),
+
+  // Which games the app / Telegram mini app presents. Admin-managed toggles.
+  games: router({
+    // Public: the enabled state of every game, defaults applied.
+    getEnabled: publicProcedure.query(async () => {
+      const overrides = await db.getGameToggleOverrides();
+      const toggles = resolveGameToggles(overrides);
+      return GAME_CATALOG.map(game => ({
+        ...game,
+        enabled: toggles.find(t => t.id === game.id)?.enabled ?? true,
+      }));
+    }),
+
+    // Admin: flip a game on or off.
+    setEnabled: protectedProcedure
+      .input(z.object({ id: z.string(), enabled: z.boolean() }))
+      .mutation(async ({ input, ctx }) => {
+        if (ctx.user.role !== "admin") {
+          throw new TRPCError({ code: "FORBIDDEN" });
+        }
+        if (!isGameId(input.id)) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Unknown game." });
+        }
+        await db.setGameEnabled(input.id, input.enabled);
+        return { success: true };
       }),
   }),
 

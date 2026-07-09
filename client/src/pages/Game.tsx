@@ -12,11 +12,13 @@ import {
   GRID_DIMENSIONS,
 } from "@shared/gameConfig";
 import { getTelegramInitData } from "@/lib/telegram";
+import { KhmerIcon } from "@/lib/khmerIcons";
 import { Clock, Zap } from "lucide-react";
 
 interface GameCard {
   pairId: number;
   text: string;
+  icon?: string;
   isMatch: boolean;
   isFlipped: boolean;
   isMatched: boolean;
@@ -268,33 +270,61 @@ export default function Game() {
         {/* Game Board */}
         <div className="bg-white rounded-xl shadow-lg p-2 sm:p-6 mb-8">
           <div className={`grid ${gridClass} gap-1.5 sm:gap-3`}>
-            {cards.map((card, idx) => (
-              <button
-                key={idx}
-                onClick={() => handleCardClick(idx)}
-                disabled={
-                  gameCompleted || flipped.length === 2 || matched.includes(idx)
-                }
-                className={`aspect-square rounded-lg font-semibold text-center flex items-center justify-center p-1 overflow-hidden transition-all duration-300 cursor-pointer ${
-                  matched.includes(idx)
-                    ? "bg-gradient-to-br from-purple-100 to-green-50 border-2 border-green-300 text-gray-900"
-                    : flipped.includes(idx)
-                      ? "bg-gradient-to-br from-purple-500 to-purple-600 text-white border-2 border-purple-600"
-                      : "bg-gradient-to-br from-purple-400 to-purple-500 text-white border-2 border-purple-500 hover:from-purple-500 hover:to-purple-600"
-                }`}
-              >
-                <span
-                  className={`${cardTextClass} w-full break-words hyphens-auto transition-all ${
-                    flipped.includes(idx) || matched.includes(idx)
-                      ? "opacity-100"
-                      : "opacity-0"
-                  }`}
-                  lang="en"
+            {cards.map((card, idx) => {
+              const isMatched = matched.includes(idx);
+              const isFlipped = flipped.includes(idx);
+              const revealed = isMatched || isFlipped;
+              const isImage = !!card.icon;
+              // Revealed image cards use a light face so the coloured icon
+              // reads; revealed word cards keep the purple/green treatment.
+              const faceClass = isMatched
+                ? "bg-gradient-to-br from-purple-100 to-green-50 border-2 border-green-300 text-gray-900"
+                : isFlipped
+                  ? isImage
+                    ? "bg-amber-50 border-2 border-purple-400 text-gray-900"
+                    : "bg-gradient-to-br from-purple-500 to-purple-600 text-white border-2 border-purple-600"
+                  : "bg-gradient-to-br from-purple-400 to-purple-500 text-white border-2 border-purple-500 hover:from-purple-500 hover:to-purple-600";
+              return (
+                <button
+                  key={idx}
+                  onClick={() => handleCardClick(idx)}
+                  disabled={gameCompleted || flipped.length === 2 || isMatched}
+                  aria-label={revealed ? card.text : "Hidden card"}
+                  className={`aspect-square rounded-lg font-semibold text-center flex flex-col items-center justify-center p-1 overflow-hidden transition-all duration-300 cursor-pointer ${faceClass}`}
                 >
-                  {card.text}
-                </span>
-              </button>
-            ))}
+                  {isImage ? (
+                    <span
+                      className={`flex flex-col items-center justify-center w-full h-full transition-all ${
+                        revealed ? "opacity-100" : "opacity-0"
+                      }`}
+                    >
+                      <KhmerIcon
+                        id={card.icon!}
+                        className={
+                          game.gridSize === "8x8"
+                            ? "w-[86%] h-[86%]"
+                            : "w-3/4 h-3/4"
+                        }
+                      />
+                      {game.gridSize !== "8x8" && (
+                        <span className={`${cardTextClass} leading-none mt-0.5`}>
+                          {card.text}
+                        </span>
+                      )}
+                    </span>
+                  ) : (
+                    <span
+                      className={`${cardTextClass} w-full break-words hyphens-auto transition-all ${
+                        revealed ? "opacity-100" : "opacity-0"
+                      }`}
+                      lang="en"
+                    >
+                      {card.text}
+                    </span>
+                  )}
+                </button>
+              );
+            })}
           </div>
         </div>
 

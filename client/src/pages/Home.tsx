@@ -8,7 +8,10 @@ import { useLocation } from "wouter";
 import { POST_LOGIN_REDIRECT_KEY } from "@/const";
 import { getTelegramInitData, isTelegramMiniApp } from "@/lib/telegram";
 import { GAME_THEMES, GRID_SIZE_OPTIONS, GRID_SIZES } from "@shared/gameConfig";
-import { Flame, Footprints, ChevronRight } from "lucide-react";
+import { KhmerIcon } from "@/lib/khmerIcons";
+import type { GameId } from "@shared/games";
+import { Flame, Footprints, ChevronRight, Dice5, Images } from "lucide-react";
+import type { ReactNode } from "react";
 
 export default function Home() {
   const { user } = useAuth();
@@ -21,7 +24,21 @@ export default function Home() {
   const [isStarting, setIsStarting] = useState(false);
 
   const { data: configuredThemes } = trpc.gameConfig.getThemes.useQuery();
+  const { data: gamesList } = trpc.games.getEnabled.useQuery();
   const createGameMutation = trpc.game.createGame.useMutation();
+
+  // Which games the admin has enabled (default enabled until the list loads).
+  const isGameEnabled = (id: GameId) =>
+    gamesList?.find(g => g.id === id)?.enabled ?? true;
+
+  // Icon per game id for the games hub.
+  const gameIcons: Record<GameId, ReactNode> = {
+    memory: <span className="text-white font-bold text-lg">P</span>,
+    photos: <Images className="w-6 h-6 text-white" />,
+    dice: <Dice5 className="w-6 h-6 text-white" />,
+    klaklok: <KhmerIcon id="tiger" className="w-7 h-7" />,
+    walk: <Footprints className="w-6 h-6 text-white" />,
+  };
   const themes =
     configuredThemes && configuredThemes.length > 0
       ? configuredThemes
@@ -107,8 +124,8 @@ export default function Home() {
         </div>
       </nav>
 
-      {/* Daily Challenge banner */}
-      {dailyChallenge && (
+      {/* Daily Challenge banner (memory game) */}
+      {dailyChallenge && isGameEnabled("memory") && (
         <section className="container pt-6">
           <Card className="p-5 sm:p-6 bg-gradient-to-r from-purple-600 to-green-500 text-white border-0 shadow-lg">
             <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
@@ -152,28 +169,39 @@ export default function Home() {
         </section>
       )}
 
-      {/* Walking Challenge CTA */}
-      <section className="container pt-4">
-        <Card
-          className="p-4 sm:p-5 flex items-center justify-between gap-4 cursor-pointer hover:shadow-md transition-shadow"
-          onClick={() => setLocation("/walk")}
-        >
-          <div className="flex items-center gap-3">
-            <div className="w-11 h-11 rounded-lg bg-gradient-to-br from-purple-500 to-green-400 text-white flex items-center justify-center flex-shrink-0">
-              <Footprints className="w-6 h-6" />
-            </div>
-            <div>
-              <p className="font-bold text-gray-900">Walking Challenge</p>
-              <p className="text-sm text-gray-600">
-                Hit your daily step goal and keep your streak alive.
-              </p>
-            </div>
+      {/* Games hub — every game the admin has enabled (memory has its own
+          setup card below). */}
+      {gamesList && gamesList.filter(g => g.id !== "memory" && g.enabled).length > 0 && (
+        <section className="container pt-4">
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {gamesList
+              .filter(g => g.id !== "memory" && g.enabled)
+              .map(g => (
+                <Card
+                  key={g.id}
+                  className="p-4 sm:p-5 flex items-center justify-between gap-4 cursor-pointer hover:shadow-md transition-shadow"
+                  onClick={() => setLocation(g.path)}
+                >
+                  <div className="flex items-center gap-3 min-w-0">
+                    <div className="w-11 h-11 rounded-lg bg-gradient-to-br from-purple-500 to-green-400 text-white flex items-center justify-center flex-shrink-0">
+                      {gameIcons[g.id]}
+                    </div>
+                    <div className="min-w-0">
+                      <p className="font-bold text-gray-900">{g.name}</p>
+                      <p className="text-sm text-gray-600 truncate">
+                        {g.description}
+                      </p>
+                    </div>
+                  </div>
+                  <ChevronRight className="w-5 h-5 text-gray-400 flex-shrink-0" />
+                </Card>
+              ))}
           </div>
-          <ChevronRight className="w-5 h-5 text-gray-400 flex-shrink-0" />
-        </Card>
-      </section>
+        </section>
+      )}
 
-      {/* Hero Section */}
+      {/* Hero Section (memory game setup) */}
+      {isGameEnabled("memory") && (
       <section className="container py-16 md:py-24">
         <div className="grid md:grid-cols-2 gap-12 items-center">
           {/* Left: Content */}
@@ -304,6 +332,7 @@ export default function Home() {
           </div>
         </div>
       </section>
+      )}
 
       {/* Features Section */}
       <section className="bg-white border-t border-purple-200 py-16">

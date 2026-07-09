@@ -14,6 +14,8 @@ import {
   appState,
   walkSessions,
   dailyWalks,
+  shakeStats,
+  appGames,
 } from "../drizzle/schema";
 import { computeStreak, type StreakState } from "./streak";
 import { ENV } from "./_core/env";
@@ -831,4 +833,128 @@ function slugifyThemeName(name: string) {
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "")
     .slice(0, 120);
+}
+
+// ---------------------------------------------------------------------------
+// Shake games (Dice & Klaklok)
+// ---------------------------------------------------------------------------
+
+/**
+ * Fold one roll into a player's aggregate stats for a game, creating the row on
+ * first play. Uniqueness on (userId, game) is enforced here (no DB constraint),
+ * mirroring the dailyWalks pattern. Returns the updated row.
+ */
+export async function recordShakeRoll(params: {
+  userId: number;
+  playerName?: string;
+  game: "dice" | "klaklok";
+  score: number;
+  isJackpot: boolean;
+}) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  const existing = await db
+    .select()
+    .from(shakeStats)
+    .where(
+      and(eq(shakeStats.userId, params.userId), eq(shakeStats.game, params.game))
+    )
+    .limit(1);
+
+  if (existing.length > 0) {
+    const row = existing[0];
+    const updated = {
+      bestScore: Math.max(row.bestScore, params.score),
+      totalRolls: row.totalRolls + 1,
+      totalScore: row.totalScore + params.score,
+      jackpots: row.jackpots + (params.isJackpot ? 1 : 0),
+      playerName: params.playerName ?? row.playerName,
+    };
+    await db
+      .update(shakeStats)
+      .set(updated)
+      .where(eq(shakeStats.id, row.id));
+    return { ...row, ...updated };
+  }
+
+  await db.insert(shakeStats).values({
+    userId: params.userId,
+    playerName: params.playerName ?? null,
+    game: params.game,
+    bestScore: params.score,
+    totalRolls: 1,
+    totalScore: params.score,
+    jackpots: params.isJackpot ? 1 : 0,
+  });
+  const rows = await db
+    .select()
+    .from(shakeStats)
+    .where(
+      and(eq(shakeStats.userId, params.userId), eq(shakeStats.game, params.game))
+    )
+    .limit(1);
+  return rows[0] ?? null;
+}
+
+export async function getShakeStats(
+  userId: number,
+  game: "dice" | "klaklok"
+) {
+  const db = await getDb();
+  if (!db) return null;
+  const rows = await db
+    .select()
+    .from(shakeStats)
+    .where(and(eq(shakeStats.userId, userId), eq(shakeStats.game, game)))
+    .limit(1);
+  return rows.length > 0 ? rows[0] : null;
+}
+
+export async function getShakeLeaderboard(
+  game: "dice" | "klaklok",
+  topN: number = 20
+) {
+  const db = await getDb();
+  if (!db) return [];
+  return await db
+    .select()
+    .from(shakeStats)
+    .where(eq(shakeStats.game, game))
+    .orderBy(desc(shakeStats.bestScore), desc(shakeStats.totalScore))
+    .limit(topN);
+}
+
+// ---------------------------------------------------------------------------
+// Game visibility toggles (admin-managed)
+// ---------------------------------------------------------------------------
+
+/** Stored slug → enabled overrides. Games without a row default to enabled. */
+export async function getGameToggleOverrides(): Promise<
+  Record<string, boolean>
+> {
+  const db = await getDb();
+  if (!db) return {};
+  const rows = await db.select().from(appGames);
+  const map: Record<string, boolean> = {};
+  for (const row of rows) map[row.slug] = row.enabled;
+  return map;
+}
+
+export async function setGameEnabled(slug: string, enabled: boolean) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const existing = await db
+    .select()
+    .from(appGames)
+    .where(eq(appGames.slug, slug))
+    .limit(1);
+  if (existing.length > 0) {
+    await db
+      .update(appGames)
+      .set({ enabled })
+      .where(eq(appGames.slug, slug));
+  } else {
+    await db.insert(appGames).values({ slug, enabled });
+  }
 }
