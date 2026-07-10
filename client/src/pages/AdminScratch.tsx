@@ -108,6 +108,11 @@ export default function AdminScratch() {
     },
     onError: e => toast.error(e.message || "Failed to delete tier"),
   });
+  const [simReport, setSimReport] = useState<any>(null);
+  const simulate = trpc.scratch.adminSimulate.useMutation({
+    onSuccess: r => setSimReport(r),
+    onError: e => toast.error(e.message || "Simulation failed"),
+  });
 
   // Campaign form state (create + edit a draft).
   const [editingId, setEditingId] = useState<number | null>(null);
@@ -626,6 +631,57 @@ export default function AdminScratch() {
                 />
               );
             })()}
+
+            {/* Probability simulation (never touches live inventory) */}
+            <div className="rounded-lg border border-gray-200 p-4">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <p className="text-sm font-semibold text-gray-800">Probability simulation</p>
+                  <p className="text-xs text-gray-500">
+                    Project win rate &amp; prize exposure over 100k plays — no live inventory touched.
+                  </p>
+                </div>
+                <Button variant="outline" size="sm" disabled={simulate.isPending}
+                  onClick={() => {
+                    setSimReport(null);
+                    simulate.mutate({ campaignId: detail.campaign.id, runs: 100000 });
+                  }}>
+                  {simulate.isPending ? "Running…" : "Simulate 100k"}
+                </Button>
+              </div>
+              {simReport && (
+                <div className="mt-3 grid grid-cols-2 sm:grid-cols-4 gap-3 text-center text-sm">
+                  <div>
+                    <div className="font-bold text-purple-600">{(simReport.actualWinRate * 100).toFixed(2)}%</div>
+                    <div className="text-xs text-gray-500">actual win rate</div>
+                  </div>
+                  <div>
+                    <div className="font-bold text-gray-700">{(simReport.expectedWinRate * 100).toFixed(2)}%</div>
+                    <div className="text-xs text-gray-500">target</div>
+                  </div>
+                  <div>
+                    <div className="font-bold text-purple-600">{money(simReport.awardedValueCents)}</div>
+                    <div className="text-xs text-gray-500">awarded / {money(simReport.maxExposureCents)}</div>
+                  </div>
+                  <div>
+                    <div className="font-bold text-gray-700">
+                      {simReport.inventoryExhausted ? `run ${simReport.exhaustedAtRun}` : "no"}
+                    </div>
+                    <div className="text-xs text-gray-500">inventory ran out?</div>
+                  </div>
+                  <div className="col-span-2 sm:col-span-4 text-left">
+                    <p className="text-xs text-gray-500 mb-1">Wins per tier:</p>
+                    <div className="flex flex-wrap gap-2">
+                      {simReport.perTier.map((pt: any) => (
+                        <span key={pt.id} className="text-xs bg-gray-50 rounded px-2 py-1">
+                          {pt.label}: {pt.wins}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
           </Card>
         )}
 

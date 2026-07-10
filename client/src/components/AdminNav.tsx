@@ -3,11 +3,14 @@ import { trpc } from "@/lib/trpc";
 import { Gamepad2, LogOut } from "lucide-react";
 import { toast } from "sonner";
 
-type AdminSection = "overview" | "scratch";
+type AdminSection = "overview" | "scratch" | "claims" | "fraud" | "reports";
 
 const TABS: { key: AdminSection; label: string; path: string }[] = [
   { key: "overview", label: "Overview", path: "/admin" },
-  { key: "scratch", label: "Scratch Campaigns", path: "/admin/scratch" },
+  { key: "scratch", label: "Campaigns", path: "/admin/scratch" },
+  { key: "claims", label: "Claims", path: "/admin/claims" },
+  { key: "fraud", label: "Fraud", path: "/admin/fraud" },
+  { key: "reports", label: "Reports", path: "/admin/reports" },
 ];
 
 /** Shared top bar tying the admin sections into one portal. */

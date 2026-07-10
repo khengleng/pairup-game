@@ -16,6 +16,9 @@ import ScratchList from "./pages/ScratchList";
 import ScratchPlay from "./pages/ScratchPlay";
 import AdminDashboard from "./pages/AdminDashboard";
 import AdminScratch from "./pages/AdminScratch";
+import AdminClaims from "./pages/AdminClaims";
+import AdminFraud from "./pages/AdminFraud";
+import AdminReports from "./pages/AdminReports";
 import AdminLogin from "./pages/AdminLogin";
 
 function Router() {
@@ -37,6 +40,9 @@ function Router() {
       <Route path={"/admin/login"} component={AdminLogin} />
       <Route path={"/admin"} component={AdminDashboard} />
       <Route path={"/admin/scratch"} component={AdminScratch} />
+      <Route path={"/admin/claims"} component={AdminClaims} />
+      <Route path={"/admin/fraud"} component={AdminFraud} />
+      <Route path={"/admin/reports"} component={AdminReports} />
       <Route path={"/404"} component={NotFound} />
       {/* Final fallback route */}
       <Route component={NotFound} />

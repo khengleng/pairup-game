@@ -59,6 +59,8 @@ function adminUser(): User {
     walkStreak: 0,
     bestWalkStreak: 0,
     lastWalkDate: null,
+    blocked: false,
+    blockReason: null,
     createdAt: now,
     updatedAt: now,
     lastSignedIn: now,

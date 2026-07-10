@@ -36,6 +36,9 @@ export const users = mysqlTable("users", {
   walkStreak: int("walkStreak").default(0).notNull(),
   bestWalkStreak: int("bestWalkStreak").default(0).notNull(),
   lastWalkDate: varchar("lastWalkDate", { length: 10 }),
+  /** Fraud control: a blocked player can't play for prizes. */
+  blocked: boolean("blocked").default(false).notNull(),
+  blockReason: varchar("blockReason", { length: 255 }),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
   lastSignedIn: timestamp("lastSignedIn").defaultNow().notNull(),

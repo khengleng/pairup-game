@@ -42,6 +42,7 @@ import {
 } from "@shared/shakeLogic";
 import { GAME_CATALOG, isGameId, resolveGameToggles } from "@shared/games";
 import * as scratch from "./scratch/service";
+import * as scratchOps from "./scratch/ops";
 import {
   codeMatches,
   expiryFromNow,
@@ -845,6 +846,12 @@ export const appRouter = router({
             message: "Open inside Telegram (or sign in) to play for prizes.",
           });
         }
+        if (player.blocked) {
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message: "Your account is restricted from playing for prizes.",
+          });
+        }
         return await scratch.play({
           campaignId: input.campaignId,
           userId: player.id,
@@ -1030,6 +1037,82 @@ export const appRouter = router({
       if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
       return await scratch.listAudit(100);
     }),
+
+    // --- Phase 3: ops & safety ---
+    adminListClaims: protectedProcedure
+      .input(
+        z.object({
+          status: z
+            .enum(["pending", "verification", "approved", "fulfilled", "rejected", "expired", "cancelled"])
+            .optional(),
+          campaignId: z.number().int().positive().optional(),
+        })
+      )
+      .query(async ({ input, ctx }) => {
+        if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+        return await scratchOps.listClaims(input);
+      }),
+
+    adminUpdateClaim: protectedProcedure
+      .input(
+        z.object({
+          id: z.number().int().positive(),
+          status: z.enum(["pending", "verification", "approved", "fulfilled", "rejected", "expired", "cancelled"]),
+          reason: z.string().max(500).optional(),
+        })
+      )
+      .mutation(async ({ input, ctx }) => {
+        if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+        return await scratchOps.updateClaimStatus(input.id, input.status, input.reason, {
+          id: ctx.user.id,
+          role: ctx.user.role,
+          ip: getClientIp(ctx.req),
+        });
+      }),
+
+    adminFraudSignals: protectedProcedure.query(async ({ ctx }) => {
+      if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+      return await scratchOps.getFraudSignals();
+    }),
+
+    adminBlockedUsers: protectedProcedure.query(async ({ ctx }) => {
+      if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+      return await scratchOps.listBlockedUsers();
+    }),
+
+    adminSetBlocked: protectedProcedure
+      .input(
+        z.object({
+          userId: z.number().int().positive(),
+          blocked: z.boolean(),
+          reason: z.string().max(255).optional(),
+        })
+      )
+      .mutation(async ({ input, ctx }) => {
+        if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+        return await scratchOps.setUserBlocked(input.userId, input.blocked, input.reason, {
+          id: ctx.user.id,
+          role: ctx.user.role,
+          ip: getClientIp(ctx.req),
+        });
+      }),
+
+    adminReports: protectedProcedure.query(async ({ ctx }) => {
+      if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+      return await scratchOps.getCampaignReports();
+    }),
+
+    adminSimulate: protectedProcedure
+      .input(
+        z.object({
+          campaignId: z.number().int().positive(),
+          runs: z.number().int().min(1000).max(1_000_000),
+        })
+      )
+      .mutation(async ({ input, ctx }) => {
+        if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+        return await scratchOps.runSimulation(input.campaignId, input.runs);
+      }),
   }),
 
   // Lead procedures
