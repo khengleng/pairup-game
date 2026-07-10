@@ -295,8 +295,27 @@ export default function AdminScratch() {
               )}
             </div>
 
-            <AddTier campaignId={detail.campaign.id}
-              onAdd={input => createTier.mutate(input)} pending={createTier.isPending} />
+            {(() => {
+              const cfg = (typeof detail.campaign.config === "string"
+                ? JSON.parse(detail.campaign.config)
+                : detail.campaign.config) as {
+                winningCount: number;
+                playerCount: number;
+                requiredMatches: number;
+              };
+              const minMatches = cfg.requiredMatches;
+              const maxMatches = Math.min(cfg.winningCount, cfg.playerCount);
+              return (
+                <AddTier
+                  key={detail.campaign.id}
+                  campaignId={detail.campaign.id}
+                  minMatches={minMatches}
+                  maxMatches={maxMatches}
+                  onAdd={input => createTier.mutate(input)}
+                  pending={createTier.isPending}
+                />
+              );
+            })()}
           </Card>
         )}
 
@@ -341,10 +360,14 @@ export default function AdminScratch() {
 
 function AddTier({
   campaignId,
+  minMatches,
+  maxMatches,
   onAdd,
   pending,
 }: {
   campaignId: number;
+  minMatches: number;
+  maxMatches: number;
   onAdd: (input: {
     campaignId: number;
     name: string;
@@ -359,9 +382,11 @@ function AddTier({
   const [name, setName] = useState("");
   const [valueLabel, setValueLabel] = useState("");
   const [valueDollars, setValueDollars] = useState(10);
-  const [requiredMatches, setRequiredMatches] = useState(2);
+  const [requiredMatches, setRequiredMatches] = useState(minMatches);
   const [totalQty, setTotalQty] = useState(50);
   const [weight, setWeight] = useState(1);
+  const matchesOutOfRange =
+    requiredMatches < minMatches || requiredMatches > maxMatches;
 
   return (
     <form
@@ -395,7 +420,14 @@ function AddTier({
       </div>
       <div>
         <Label>Matches</Label>
-        <Input type="number" min={1} value={requiredMatches} onChange={e => setRequiredMatches(+e.target.value)} />
+        <Input
+          type="number"
+          min={minMatches}
+          max={maxMatches}
+          value={requiredMatches}
+          onChange={e => setRequiredMatches(+e.target.value)}
+          className={matchesOutOfRange ? "border-red-400" : ""}
+        />
       </div>
       <div>
         <Label>Qty</Label>
@@ -405,8 +437,18 @@ function AddTier({
         <Label>Weight</Label>
         <Input type="number" min={1} value={weight} onChange={e => setWeight(+e.target.value)} />
       </div>
-      <div className="sm:col-span-6">
-        <Button type="submit" disabled={pending} className="btn-primary">
+      <div className="sm:col-span-6 space-y-2">
+        <p className="text-xs text-gray-500">
+          Matches to win must be{" "}
+          <b>
+            {minMatches === maxMatches
+              ? minMatches
+              : `${minMatches}–${maxMatches}`}
+          </b>{" "}
+          for this campaign (set by its winning/player number counts). More
+          matches = a rarer, higher tier.
+        </p>
+        <Button type="submit" disabled={pending || matchesOutOfRange} className="btn-primary">
           {pending ? "Adding…" : "Add prize tier"}
         </Button>
       </div>
