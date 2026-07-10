@@ -1,3 +1,4 @@
+import { BRAND } from "@shared/brand";
 import { useEffect, useState } from "react";
 import { useLocation } from "wouter";
 import { ShieldCheck } from "lucide-react";
@@ -56,7 +57,7 @@ export default function AdminLogin() {
             </h1>
             <p className="text-sm text-gray-600 mt-2">
               Enter the admin password to add themes, arrange games, and manage
-              PairUp.
+              {BRAND}.
             </p>
           </div>
         </div>

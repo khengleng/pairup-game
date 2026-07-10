@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
+import { useTelegramBackButton } from "@/lib/telegramUi";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { toast } from "sonner";
@@ -57,6 +58,7 @@ function shuffle<T>(arr: T[]): T[] {
 
 export default function PhotoMemory() {
   const [, setLocation] = useLocation();
+  useTelegramBackButton(() => setLocation("/"));
   const fileRef = useRef<HTMLInputElement>(null);
 
   const [photos, setPhotos] = useState<string[]>([]);

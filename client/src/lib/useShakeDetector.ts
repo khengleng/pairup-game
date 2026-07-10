@@ -26,6 +26,15 @@ export function motionSupported(): boolean {
   );
 }
 
+/**
+ * True when Telegram's accelerometer is available — motion that needs NO
+ * permission gesture, so we can safely start listening on mount. Standard
+ * DeviceMotion on iOS requires a user tap first, so we don't auto-start there.
+ */
+export function hasTelegramMotion(): boolean {
+  return getTelegramAccelerometer() != null;
+}
+
 export function useShakeDetector(onShake: () => void) {
   const [isListening, setIsListening] = useState(false);
   const [error, setError] = useState<string | null>(null);

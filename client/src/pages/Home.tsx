@@ -8,9 +8,19 @@ import { useLocation } from "wouter";
 import { POST_LOGIN_REDIRECT_KEY } from "@/const";
 import { getTelegramInitData, isTelegramMiniApp } from "@/lib/telegram";
 import { GAME_THEMES, GRID_SIZE_OPTIONS, GRID_SIZES } from "@shared/gameConfig";
+import { BRAND } from "@shared/brand";
 import { KhmerIcon } from "@/lib/khmerIcons";
 import type { GameId } from "@shared/games";
-import { Flame, Footprints, ChevronRight, Dice5, Images, Ticket } from "lucide-react";
+import {
+  Flame,
+  Footprints,
+  ChevronRight,
+  Dice5,
+  Images,
+  Ticket,
+  LayoutGrid,
+  Gamepad2,
+} from "lucide-react";
 import type { ReactNode } from "react";
 
 export default function Home() {
@@ -27,19 +37,18 @@ export default function Home() {
   const { data: gamesList } = trpc.games.getEnabled.useQuery();
   const createGameMutation = trpc.game.createGame.useMutation();
 
-  // Which games the admin has enabled (default enabled until the list loads).
   const isGameEnabled = (id: GameId) =>
     gamesList?.find(g => g.id === id)?.enabled ?? true;
 
-  // Icon per game id for the games hub.
   const gameIcons: Record<GameId, ReactNode> = {
-    memory: <span className="text-white font-bold text-lg">P</span>,
+    memory: <LayoutGrid className="w-6 h-6 text-white" />,
     photos: <Images className="w-6 h-6 text-white" />,
     dice: <Dice5 className="w-6 h-6 text-white" />,
     klaklok: <KhmerIcon id="tiger" className="w-7 h-7" />,
     scratch: <Ticket className="w-6 h-6 text-white" />,
     walk: <Footprints className="w-6 h-6 text-white" />,
   };
+
   const themes =
     configuredThemes && configuredThemes.length > 0
       ? configuredThemes
@@ -47,7 +56,6 @@ export default function Home() {
   const selectedTheme =
     themes.find(theme => theme.id === selectedThemeId) ?? themes[0];
 
-  // Daily challenge
   const initData = getTelegramInitData();
   const { data: dailyChallenge } = trpc.daily.getChallenge.useQuery();
   const { data: dailyStatus } = trpc.daily.getMyStatus.useQuery({ initData });
@@ -68,18 +76,8 @@ export default function Home() {
     }
   };
 
-  useEffect(() => {
-    if (!user) return;
-    const redirectPath = localStorage.getItem(POST_LOGIN_REDIRECT_KEY);
-    if (!redirectPath) return;
-
-    localStorage.removeItem(POST_LOGIN_REDIRECT_KEY);
-    setLocation(redirectPath);
-  }, [setLocation, user]);
-
   const handleStartGame = async () => {
     if (!selectedTheme) return;
-
     setIsStarting(true);
     try {
       const result = await createGameMutation.mutateAsync({
@@ -93,180 +91,132 @@ export default function Home() {
     }
   };
 
+  useEffect(() => {
+    if (!user) return;
+    const redirectPath = localStorage.getItem(POST_LOGIN_REDIRECT_KEY);
+    if (!redirectPath) return;
+    localStorage.removeItem(POST_LOGIN_REDIRECT_KEY);
+    setLocation(redirectPath);
+  }, [setLocation, user]);
+
+  const memoryEnabled = isGameEnabled("memory");
+  const otherGames = (gamesList ?? []).filter(
+    g => g.id !== "memory" && g.enabled
+  );
+
   return (
-    <div className="min-h-screen pairup-gradient">
-      {/* Navigation */}
-      <nav className="bg-white shadow-sm border-b border-purple-200">
-        <div className="container flex items-center justify-between py-4">
+    <div className="min-h-screen pairup-gradient pb-10">
+      {/* Top bar */}
+      <nav className="bg-white/90 backdrop-blur border-b border-purple-100 sticky top-0 z-10">
+        <div className="container flex items-center justify-between py-3">
           <div className="flex items-center gap-2">
-            <div className="w-10 h-10 bg-gradient-to-br from-purple-500 to-green-400 rounded-lg flex items-center justify-center">
-              <span className="text-white font-bold text-lg">P</span>
+            <div className="w-9 h-9 bg-gradient-to-br from-purple-500 to-green-400 rounded-lg flex items-center justify-center">
+              <Gamepad2 className="w-5 h-5 text-white" />
             </div>
-            <h1 className="text-2xl font-bold bg-gradient-to-r from-purple-600 to-green-500 bg-clip-text text-transparent">
-              PairUp
-            </h1>
+            <h1 className="text-lg font-bold text-gray-900">{BRAND}</h1>
           </div>
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-3">
             {user && (
-              <span className="text-sm text-gray-600">
-                Welcome, {user.name}
+              <span className="hidden sm:inline text-sm text-gray-600">
+                Hi, {user.name}
               </span>
             )}
             {!isTelegramMiniApp() && (
               <Button
                 variant="outline"
+                size="sm"
                 onClick={() => setLocation("/setup")}
-                className="btn-outline"
               >
-                Game Setup
+                Admin
               </Button>
             )}
           </div>
         </div>
       </nav>
 
-      {/* Daily Challenge banner (memory game) */}
-      {dailyChallenge && isGameEnabled("memory") && (
-        <section className="container pt-6">
-          <Card className="p-5 sm:p-6 bg-gradient-to-r from-purple-600 to-green-500 text-white border-0 shadow-lg">
-            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-              <div className="space-y-1">
-                <div className="flex items-center gap-2 text-sm font-semibold uppercase tracking-wide opacity-90">
+      <div className="container pt-5 space-y-5 max-w-2xl">
+        <div>
+          <h2 className="text-xl font-bold text-gray-900">Pick a game</h2>
+          <p className="text-sm text-gray-500">Tap to play — no sign-up needed.</p>
+        </div>
+
+        {/* Daily challenge (memory) */}
+        {dailyChallenge && memoryEnabled && (
+          <Card className="p-4 bg-gradient-to-r from-purple-600 to-green-500 text-white border-0 shadow-md">
+            <div className="flex items-center justify-between gap-3">
+              <div className="min-w-0">
+                <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide opacity-90">
                   <Flame className="w-4 h-4" />
                   Daily Challenge
                 </div>
-                <p className="text-lg font-bold">
+                <p className="font-bold truncate">
                   {dailyChallenge.theme} · {dailyChallenge.gridSize}
                 </p>
-                <p className="text-sm opacity-90">
-                  Same board for everyone today. Beat the clock and climb the
-                  daily board.
-                </p>
               </div>
-              <div className="flex items-center gap-4">
+              <div className="flex items-center gap-3 flex-shrink-0">
                 {dailyStatus && dailyStatus.streak > 0 && (
                   <div className="text-center">
-                    <div className="flex items-center gap-1 text-2xl font-bold">
-                      <Flame className="w-5 h-5" />
+                    <div className="flex items-center gap-1 text-lg font-bold">
+                      <Flame className="w-4 h-4" />
                       {dailyStatus.streak}
                     </div>
-                    <div className="text-xs opacity-90">day streak</div>
+                    <div className="text-[10px] opacity-90">streak</div>
                   </div>
                 )}
                 <Button
                   onClick={handlePlayDaily}
                   disabled={isStartingDaily || createGameMutation.isPending}
+                  size="sm"
                   className="bg-white text-purple-700 hover:bg-purple-50 font-semibold"
                 >
-                  {dailyStatus?.playedToday
-                    ? "Play Again"
-                    : isStartingDaily
-                      ? "Loading..."
-                      : "Play Daily"}
+                  {dailyStatus?.playedToday ? "Replay" : "Play"}
                 </Button>
               </div>
             </div>
           </Card>
-        </section>
-      )}
+        )}
 
-      {/* Games hub — every game the admin has enabled (memory has its own
-          setup card below). */}
-      {gamesList && gamesList.filter(g => g.id !== "memory" && g.enabled).length > 0 && (
-        <section className="container pt-4">
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            {gamesList
-              .filter(g => g.id !== "memory" && g.enabled)
-              .map(g => (
-                <Card
-                  key={g.id}
-                  className="p-4 sm:p-5 flex items-center justify-between gap-4 cursor-pointer hover:shadow-md transition-shadow"
-                  onClick={() => setLocation(g.path)}
-                >
-                  <div className="flex items-center gap-3 min-w-0">
-                    <div className="w-11 h-11 rounded-lg bg-gradient-to-br from-purple-500 to-green-400 text-white flex items-center justify-center flex-shrink-0">
-                      {gameIcons[g.id]}
-                    </div>
-                    <div className="min-w-0">
-                      <p className="font-bold text-gray-900">{g.name}</p>
-                      <p className="text-sm text-gray-600 truncate">
-                        {g.description}
-                      </p>
-                    </div>
-                  </div>
-                  <ChevronRight className="w-5 h-5 text-gray-400 flex-shrink-0" />
-                </Card>
-              ))}
+        {/* Games grid */}
+        {otherGames.length > 0 && (
+          <div className="grid grid-cols-2 gap-3">
+            {otherGames.map(g => (
+              <button
+                key={g.id}
+                onClick={() => setLocation(g.path)}
+                className="text-left bg-white rounded-xl border border-purple-100 p-4 hover:shadow-md hover:border-purple-300 transition-all active:scale-[0.98]"
+              >
+                <div className="w-11 h-11 rounded-lg bg-gradient-to-br from-purple-500 to-green-400 flex items-center justify-center mb-2">
+                  {gameIcons[g.id]}
+                </div>
+                <p className="font-bold text-gray-900 leading-tight">{g.name}</p>
+                <p className="text-xs text-gray-500 mt-0.5 line-clamp-2">
+                  {g.description}
+                </p>
+              </button>
+            ))}
           </div>
-        </section>
-      )}
+        )}
 
-      {/* Hero Section (memory game setup) */}
-      {isGameEnabled("memory") && (
-      <section className="container py-16 md:py-24">
-        <div className="grid md:grid-cols-2 gap-12 items-center">
-          {/* Left: Content */}
-          <div className="space-y-6">
+        {/* Memory Match quick setup */}
+        {memoryEnabled && (
+          <Card className="p-5 space-y-4">
+            <div className="flex items-center gap-2">
+              <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-purple-500 to-green-400 flex items-center justify-center">
+                <LayoutGrid className="w-5 h-5 text-white" />
+              </div>
+              <div>
+                <h3 className="font-bold text-gray-900 leading-tight">
+                  Memory Match
+                </h3>
+                <p className="text-xs text-gray-500">
+                  Flip cards, find the pairs.
+                </p>
+              </div>
+            </div>
+
             <div className="space-y-2">
-              <h2 className="heading-lg">Match Your Way to Victory</h2>
-              <p className="text-xl text-gray-600">
-                Challenge yourself with PairUp, the ultimate memory matching
-                game. Test your skills, climb the leaderboard, and capture
-                amazing prizes!
-              </p>
-            </div>
-
-            <div className="space-y-4">
-              <div className="flex items-start gap-3">
-                <div className="w-8 h-8 rounded-full bg-purple-500 text-white flex items-center justify-center flex-shrink-0 font-bold">
-                  ✓
-                </div>
-                <div>
-                  <h3 className="font-semibold text-gray-900">
-                    Configurable Themes
-                  </h3>
-                  <p className="text-sm text-gray-600">
-                    {themes.map(theme => theme.name).join(", ")}
-                  </p>
-                </div>
-              </div>
-              <div className="flex items-start gap-3">
-                <div className="w-8 h-8 rounded-full bg-green-500 text-white flex items-center justify-center flex-shrink-0 font-bold">
-                  ✓
-                </div>
-                <div>
-                  <h3 className="font-semibold text-gray-900">
-                    Multiple Difficulty Levels
-                  </h3>
-                  <p className="text-sm text-gray-600">
-                    Easy (4×4), Medium (6×6), Hard (8×8)
-                  </p>
-                </div>
-              </div>
-              <div className="flex items-start gap-3">
-                <div className="w-8 h-8 rounded-full bg-purple-500 text-white flex items-center justify-center flex-shrink-0 font-bold">
-                  ✓
-                </div>
-                <div>
-                  <h3 className="font-semibold text-gray-900">
-                    Track Your Best Scores
-                  </h3>
-                  <p className="text-sm text-gray-600">
-                    Personal bests and global leaderboard
-                  </p>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* Right: Game Setup Card */}
-          <div className="game-card p-8 space-y-6">
-            <h3 className="heading-md text-center">Ready to Play?</h3>
-
-            {/* Theme Selector */}
-            <div className="space-y-3">
-              <label className="block text-sm font-semibold text-gray-700">
-                Choose Your Theme
+              <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide">
+                Theme
               </label>
               <Tabs value={selectedThemeId} onValueChange={setSelectedThemeId}>
                 <TabsList
@@ -276,21 +226,17 @@ export default function Home() {
                   }}
                 >
                   {themes.map(theme => (
-                    <TabsTrigger key={theme.id} value={theme.id}>
+                    <TabsTrigger key={theme.id} value={theme.id} className="text-xs">
                       {theme.name}
                     </TabsTrigger>
                   ))}
                 </TabsList>
               </Tabs>
-              <p className="text-xs text-gray-500">
-                {selectedTheme?.description}
-              </p>
             </div>
 
-            {/* Difficulty Selector */}
-            <div className="space-y-3">
-              <label className="block text-sm font-semibold text-gray-700">
-                Select Difficulty
+            <div className="space-y-2">
+              <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide">
+                Difficulty
               </label>
               <div className="grid grid-cols-3 gap-2">
                 {GRID_SIZE_OPTIONS.map(({ id, label }) => (
@@ -299,97 +245,33 @@ export default function Home() {
                     onClick={() =>
                       setSelectedGridSize(id as keyof typeof GRID_SIZES)
                     }
-                    className={`py-3 px-4 rounded-lg font-semibold transition-all ${
+                    className={`py-2 rounded-lg font-semibold transition-all ${
                       selectedGridSize === id
-                        ? "bg-gradient-to-r from-purple-500 to-purple-600 text-white shadow-lg"
+                        ? "bg-gradient-to-r from-purple-500 to-purple-600 text-white shadow"
                         : "bg-gray-100 text-gray-700 hover:bg-gray-200"
                     }`}
                   >
                     <div className="text-sm capitalize">{id}</div>
-                    <div className="text-xs opacity-75">{label}</div>
+                    <div className="text-[10px] opacity-75">{label}</div>
                   </button>
                 ))}
               </div>
-              <p className="text-xs text-gray-500">
-                {selectedGridSize === "easy" &&
-                  "16 cards - Perfect for beginners"}
-                {selectedGridSize === "medium" && "36 cards - A real challenge"}
-                {selectedGridSize === "hard" && "64 cards - For the masters"}
-              </p>
             </div>
 
-            {/* Start Button */}
             <Button
               onClick={handleStartGame}
-              disabled={
-                !selectedTheme || isStarting || createGameMutation.isPending
-              }
-              className="w-full btn-primary text-lg py-6"
+              disabled={!selectedTheme || isStarting || createGameMutation.isPending}
+              className="w-full btn-primary py-5 text-base"
             >
-              {isStarting || createGameMutation.isPending
-                ? "Starting..."
-                : "Play Now"}
+              {isStarting || createGameMutation.isPending ? "Starting…" : "Play Memory Match"}
             </Button>
-          </div>
-        </div>
-      </section>
-      )}
+          </Card>
+        )}
 
-      {/* Features Section */}
-      <section className="bg-white border-t border-purple-200 py-16">
-        <div className="container">
-          <h2 className="heading-md text-center mb-12">Why PairUp?</h2>
-          <div className="grid md:grid-cols-3 gap-8">
-            <Card className="p-6 text-center hover:shadow-lg transition-shadow">
-              <div className="w-12 h-12 bg-purple-100 rounded-lg flex items-center justify-center mx-auto mb-4">
-                <span className="text-2xl">🎮</span>
-              </div>
-              <h3 className="font-semibold mb-2">Playful Design</h3>
-              <p className="text-sm text-gray-600">
-                Enjoy a vibrant, engaging interface with smooth animations and
-                delightful interactions.
-              </p>
-            </Card>
-
-            <Card className="p-6 text-center hover:shadow-lg transition-shadow">
-              <div className="w-12 h-12 bg-green-100 rounded-lg flex items-center justify-center mx-auto mb-4">
-                <span className="text-2xl">🏆</span>
-              </div>
-              <h3 className="font-semibold mb-2">Compete & Win</h3>
-              <p className="text-sm text-gray-600">
-                Climb the leaderboard, earn top scores, and qualify for
-                exclusive prizes.
-              </p>
-            </Card>
-
-            <Card className="p-6 text-center hover:shadow-lg transition-shadow">
-              <div className="w-12 h-12 bg-purple-100 rounded-lg flex items-center justify-center mx-auto mb-4">
-                <span className="text-2xl">📊</span>
-              </div>
-              <h3 className="font-semibold mb-2">Track Progress</h3>
-              <p className="text-sm text-gray-600">
-                Monitor your personal bests and see how you compare to other
-                players globally.
-              </p>
-            </Card>
-          </div>
-        </div>
-      </section>
-
-      {/* CTA Section */}
-      <section className="container py-16 text-center">
-        <h2 className="heading-md mb-4">Ready to Test Your Memory?</h2>
-        <p className="text-gray-600 mb-8 max-w-2xl mx-auto">
-          Join thousands of players competing in PairUp. Whether you're a casual
-          player or a competitive gamer, there's a challenge waiting for you.
+        <p className="text-center text-xs text-gray-400 pt-2">
+          {BRAND} · play, compete, win
         </p>
-        <Button
-          onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}
-          className="btn-primary"
-        >
-          Start Playing Now
-        </Button>
-      </section>
+      </div>
     </div>
   );
 }

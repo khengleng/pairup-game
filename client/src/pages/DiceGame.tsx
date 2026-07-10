@@ -4,7 +4,12 @@ import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { getTelegramInitData } from "@/lib/telegram";
-import { useShakeDetector, motionSupported } from "@/lib/useShakeDetector";
+import {
+  useShakeDetector,
+  motionSupported,
+  hasTelegramMotion,
+} from "@/lib/useShakeDetector";
+import { useTelegramBackButton, haptic } from "@/lib/telegramUi";
 import { toast } from "sonner";
 import { Dice5, Smartphone, Trophy } from "lucide-react";
 
@@ -76,7 +81,10 @@ export default function DiceGame() {
       setDice(res.roll.dice);
       setLastTotal(res.roll.total);
       if (res.roll.isDoubles) {
+        haptic.notify("success");
         toast.success(`🎲 Doubles! You rolled ${res.roll.total}.`);
+      } else {
+        haptic.impact("medium");
       }
       await Promise.all([
         utils.shake.getMyStats.invalidate({ game: "dice" }),
@@ -92,10 +100,12 @@ export default function DiceGame() {
   };
 
   const { isListening, error, start, stop } = useShakeDetector(doRoll);
+  useTelegramBackButton(() => setLocation("/"));
 
-  // Start listening for shakes on mount where supported; clean up on unmount.
+  // Auto-listen only where motion needs no permission gesture (Telegram). On
+  // iOS/web the user taps "Enable shake" (a gesture) to grant motion access.
   useEffect(() => {
-    if (motionSupported()) start();
+    if (hasTelegramMotion()) start();
     return () => stop();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);

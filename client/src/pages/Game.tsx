@@ -13,6 +13,8 @@ import {
 } from "@shared/gameConfig";
 import { getTelegramInitData } from "@/lib/telegram";
 import { KhmerIcon } from "@/lib/khmerIcons";
+import { useTelegramBackButton, haptic } from "@/lib/telegramUi";
+import { BRAND } from "@shared/brand";
 import { Clock, Zap } from "lucide-react";
 
 interface GameCard {
@@ -44,6 +46,12 @@ export default function Game() {
   const [seconds, setSeconds] = useState(0);
   const [gameStarted, setGameStarted] = useState(false);
   const [gameCompleted, setGameCompleted] = useState(false);
+
+  useTelegramBackButton(() => setLocation("/"));
+
+  useEffect(() => {
+    if (gameCompleted) haptic.notify("success");
+  }, [gameCompleted]);
 
   // Initialize game
   useEffect(() => {
@@ -208,7 +216,7 @@ export default function Game() {
             <div className="w-10 h-10 bg-gradient-to-br from-purple-500 to-green-400 rounded-lg flex items-center justify-center">
               <span className="text-white font-bold">P</span>
             </div>
-            <h1 className="text-2xl font-bold text-gray-900">PairUp</h1>
+            <h1 className="text-2xl font-bold text-gray-900">{BRAND}</h1>
           </div>
           <Button
             variant="outline"

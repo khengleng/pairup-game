@@ -550,6 +550,35 @@ export async function createCampaign(
   return { id, slug };
 }
 
+/**
+ * Whether a campaign is safe to make live: it needs a win chance, at least one
+ * prize tier, and available inventory — otherwise players can only ever lose.
+ */
+export async function getCampaignReadiness(campaignId: number) {
+  const db = await getDb();
+  const checks = { hasWinChance: false, hasTier: false, hasInventory: false };
+  if (!db) return { ready: false, checks };
+  const [campaign] = await db
+    .select()
+    .from(scratchCampaigns)
+    .where(eq(scratchCampaigns.id, campaignId))
+    .limit(1);
+  if (!campaign) return { ready: false, checks };
+  const tiers = await db
+    .select()
+    .from(scratchPrizeTiers)
+    .where(eq(scratchPrizeTiers.campaignId, campaignId));
+  checks.hasWinChance = campaign.winProbabilityBps > 0;
+  checks.hasTier = tiers.length > 0;
+  checks.hasInventory = tiers.some(
+    t => t.totalQty - t.reservedQty - t.claimedQty > 0
+  );
+  return {
+    ready: checks.hasWinChance && checks.hasTier && checks.hasInventory,
+    checks,
+  };
+}
+
 export async function setCampaignStatus(
   id: number,
   status: "draft" | "active" | "paused" | "ended",
@@ -562,6 +591,23 @@ export async function setCampaignStatus(
     .where(eq(scratchCampaigns.id, id))
     .limit(1);
   if (!before) throw new TRPCError({ code: "NOT_FOUND" });
+
+  // Guard: don't let a campaign go live if players could only ever lose.
+  if (status === "active") {
+    const { ready, checks } = await getCampaignReadiness(id);
+    if (!ready) {
+      const missing = [
+        !checks.hasWinChance && "a win chance above 0%",
+        !checks.hasTier && "at least one prize tier",
+        !checks.hasInventory && "available prize inventory",
+      ].filter(Boolean);
+      throw new TRPCError({
+        code: "BAD_REQUEST",
+        message: `Can't activate yet — this campaign needs ${missing.join(", ")}.`,
+      });
+    }
+  }
+
   await db
     .update(scratchCampaigns)
     .set({ status })
@@ -654,6 +700,124 @@ export async function addVoucherCodes(
   return { added: clean.length };
 }
 
+/** Edit a DRAFT campaign's rules/settings. Only drafts are editable. */
+export async function updateCampaign(
+  id: number,
+  input: Partial<CreateCampaignInput>,
+  actor: { id: number; role: string; ip?: string }
+) {
+  const db = await getDbOrThrow();
+  const [before] = await db
+    .select()
+    .from(scratchCampaigns)
+    .where(eq(scratchCampaigns.id, id))
+    .limit(1);
+  if (!before) throw new TRPCError({ code: "NOT_FOUND" });
+  if (before.status !== "draft") {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: "Only draft campaigns can be edited. Pause or clone a live one.",
+    });
+  }
+  if (input.config) {
+    const err = validateMatchingNumbersConfig(input.config);
+    if (err) throw new TRPCError({ code: "BAD_REQUEST", message: err });
+  }
+  const patch: Record<string, unknown> = {};
+  if (input.name !== undefined) patch.name = input.name;
+  if (input.description !== undefined) patch.description = input.description ?? null;
+  if (input.config !== undefined) patch.config = input.config;
+  if (input.winProbabilityBps !== undefined) patch.winProbabilityBps = input.winProbabilityBps;
+  if (input.dailyPlayLimit !== undefined) patch.dailyPlayLimit = input.dailyPlayLimit;
+  if (input.minAge !== undefined) patch.minAge = input.minAge;
+  if (input.countries !== undefined) patch.countries = input.countries ?? null;
+  if (input.termsUrl !== undefined) patch.termsUrl = input.termsUrl ?? null;
+  if (input.expiresAt !== undefined) patch.expiresAt = input.expiresAt ?? null;
+  await db.update(scratchCampaigns).set(patch).where(eq(scratchCampaigns.id, id));
+  await writeAudit({
+    actorId: actor.id,
+    actorRole: actor.role,
+    action: "campaign.update",
+    entity: "scratchCampaign",
+    entityId: String(id),
+    before: { name: before.name, config: before.config, winProbabilityBps: before.winProbabilityBps },
+    after: patch,
+    ip: actor.ip ?? null,
+  });
+  return { success: true };
+}
+
+/** Delete a DRAFT campaign and its tiers + vouchers. Live/ended are protected. */
+export async function deleteCampaign(
+  id: number,
+  actor: { id: number; role: string; ip?: string }
+) {
+  const db = await getDbOrThrow();
+  const [campaign] = await db
+    .select()
+    .from(scratchCampaigns)
+    .where(eq(scratchCampaigns.id, id))
+    .limit(1);
+  if (!campaign) throw new TRPCError({ code: "NOT_FOUND" });
+  if (campaign.status !== "draft") {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: "Only draft campaigns can be deleted. End a live campaign instead.",
+    });
+  }
+  const tiers = await db
+    .select({ id: scratchPrizeTiers.id })
+    .from(scratchPrizeTiers)
+    .where(eq(scratchPrizeTiers.campaignId, id));
+  for (const t of tiers) {
+    await db.delete(scratchVoucherCodes).where(eq(scratchVoucherCodes.prizeTierId, t.id));
+  }
+  await db.delete(scratchPrizeTiers).where(eq(scratchPrizeTiers.campaignId, id));
+  await db.delete(scratchCampaigns).where(eq(scratchCampaigns.id, id));
+  await writeAudit({
+    actorId: actor.id,
+    actorRole: actor.role,
+    action: "campaign.delete",
+    entity: "scratchCampaign",
+    entityId: String(id),
+    before: { name: campaign.name, status: campaign.status },
+    ip: actor.ip ?? null,
+  });
+  return { success: true };
+}
+
+/** Delete a prize tier (and its vouchers) — only if nothing has been won yet. */
+export async function deletePrizeTier(
+  id: number,
+  actor: { id: number; role: string; ip?: string }
+) {
+  const db = await getDbOrThrow();
+  const [tier] = await db
+    .select()
+    .from(scratchPrizeTiers)
+    .where(eq(scratchPrizeTiers.id, id))
+    .limit(1);
+  if (!tier) throw new TRPCError({ code: "NOT_FOUND" });
+  if (tier.claimedQty > 0 || tier.reservedQty > 0) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: "Can't delete a tier that already has awarded or reserved prizes.",
+    });
+  }
+  await db.delete(scratchVoucherCodes).where(eq(scratchVoucherCodes.prizeTierId, id));
+  await db.delete(scratchPrizeTiers).where(eq(scratchPrizeTiers.id, id));
+  await writeAudit({
+    actorId: actor.id,
+    actorRole: actor.role,
+    action: "prizeTier.delete",
+    entity: "scratchPrizeTier",
+    entityId: String(id),
+    before: { name: tier.name, valueLabel: tier.valueLabel },
+    ip: actor.ip ?? null,
+  });
+  return { success: true };
+}
+
 export async function listCampaignsAdmin() {
   const db = await getDb();
   if (!db) return [];
@@ -714,10 +878,21 @@ export async function getCampaignAdmin(id: number) {
     .from(scratchSessions)
     .where(and(eq(scratchSessions.campaignId, id), eq(scratchSessions.isWinner, true)));
 
+  const checks = {
+    hasWinChance: campaign.winProbabilityBps > 0,
+    hasTier: tiersWithStock.length > 0,
+    hasInventory: tiersWithStock.some(t => t.remaining > 0),
+  };
+  const readiness = {
+    ready: checks.hasWinChance && checks.hasTier && checks.hasInventory,
+    checks,
+  };
+
   return {
     campaign,
     tiers: tiersWithStock,
     liability,
+    readiness,
     plays: Number(plays?.count ?? 0),
     winners: Number(winners?.count ?? 0),
   };

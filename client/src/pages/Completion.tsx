@@ -1,3 +1,4 @@
+import { BRAND } from "@shared/brand";
 import { useState } from "react";
 import { useLocation } from "wouter";
 import { useSearch } from "wouter";
@@ -140,7 +141,7 @@ export default function Completion() {
     }
   };
 
-  const scoreMessage = `I just completed PairUp in ${moves} moves and ${Math.floor(timeSeconds / 60)}:${String(timeSeconds % 60).padStart(2, "0")}!${isDaily ? " (today's Daily Challenge)" : ""} Can you beat my score? 🎮`;
+  const scoreMessage = `I just completed ${BRAND} in ${moves} moves and ${Math.floor(timeSeconds / 60)}:${String(timeSeconds % 60).padStart(2, "0")}!${isDaily ? " (today's Daily Challenge)" : ""} Can you beat my score? 🎮`;
 
   const handleTelegramShare = () => {
     const url = shareLink?.url ?? window.location.origin;
@@ -178,7 +179,7 @@ export default function Completion() {
             <div className="w-10 h-10 bg-gradient-to-br from-purple-500 to-green-400 rounded-lg flex items-center justify-center">
               <span className="text-white font-bold">P</span>
             </div>
-            <h1 className="text-2xl font-bold text-gray-900">PairUp</h1>
+            <h1 className="text-2xl font-bold text-gray-900">{BRAND}</h1>
           </div>
           <Button
             variant="outline"
@@ -424,7 +425,7 @@ export default function Completion() {
                   required
                 />
                 <span>
-                  I agree to be contacted about PairUp and related products, and
+                  I agree to be contacted about {BRAND} and related products, and
                   consent to my details being stored for this purpose.
                 </span>
               </label>

@@ -1,3 +1,4 @@
+import { BRAND } from "@shared/brand";
 import { useState } from "react";
 import { useLocation } from "wouter";
 import { trpc } from "@/lib/trpc";
@@ -258,7 +259,7 @@ export default function AdminDashboard() {
         <div className="mb-8">
           <h2 className="heading-lg mb-2">📊 Lead Management</h2>
           <p className="text-gray-600">
-            View all captured leads from PairUp players
+            View all captured leads from {BRAND} players
           </p>
         </div>
 

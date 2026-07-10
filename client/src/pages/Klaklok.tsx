@@ -4,7 +4,12 @@ import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { getTelegramInitData } from "@/lib/telegram";
-import { useShakeDetector, motionSupported } from "@/lib/useShakeDetector";
+import {
+  useShakeDetector,
+  motionSupported,
+  hasTelegramMotion,
+} from "@/lib/useShakeDetector";
+import { useTelegramBackButton, haptic } from "@/lib/telegramUi";
 import { KhmerIcon } from "@/lib/khmerIcons";
 import {
   KLAKLOK_SYMBOLS,
@@ -111,10 +116,19 @@ export default function Klaklok() {
       setChips(prev => Math.max(0, prev + bet.net));
 
       const name = getKlaklokSymbol(p)?.name ?? "";
-      if (bet.count === 3) toast.success(`🎉 Triple ${name}! +${bet.net} chips!`);
-      else if (bet.count === 2) toast.success(`Two ${name}s — +${bet.net} chips!`);
-      else if (bet.count === 1) toast.success(`One ${name} — +${bet.net} chips.`);
-      else toast(`No ${name} this time — ${bet.net} chips.`);
+      if (bet.count === 3) {
+        haptic.notify("success");
+        toast.success(`🎉 Triple ${name}! +${bet.net} chips!`);
+      } else if (bet.count === 2) {
+        haptic.notify("success");
+        toast.success(`Two ${name}s — +${bet.net} chips!`);
+      } else if (bet.count === 1) {
+        haptic.impact("medium");
+        toast.success(`One ${name} — +${bet.net} chips.`);
+      } else {
+        haptic.notify("warning");
+        toast(`No ${name} this time — ${bet.net} chips.`);
+      }
 
       await Promise.all([
         utils.shake.getMyStats.invalidate({ game: "klaklok" }),
@@ -130,9 +144,10 @@ export default function Klaklok() {
   };
 
   const { isListening, error, start, stop } = useShakeDetector(doRoll);
+  useTelegramBackButton(() => setLocation("/"));
 
   useEffect(() => {
-    if (motionSupported()) start();
+    if (hasTelegramMotion()) start();
     return () => stop();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);

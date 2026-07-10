@@ -1,3 +1,4 @@
+import { BRAND } from "@shared/brand";
 import { useState } from "react";
 import { useLocation } from "wouter";
 import { trpc } from "@/lib/trpc";
@@ -43,7 +44,7 @@ export default function Leaderboard() {
             <div className="w-10 h-10 bg-gradient-to-br from-purple-500 to-green-400 rounded-lg flex items-center justify-center">
               <span className="text-white font-bold">P</span>
             </div>
-            <h1 className="text-2xl font-bold text-gray-900">PairUp</h1>
+            <h1 className="text-2xl font-bold text-gray-900">{BRAND}</h1>
           </div>
           <Button
             variant="outline"

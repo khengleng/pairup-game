@@ -1,4 +1,5 @@
 import { useLocation } from "wouter";
+import { useTelegramBackButton } from "@/lib/telegramUi";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -7,6 +8,7 @@ import { Ticket, ChevronRight, Gift } from "lucide-react";
 
 export default function ScratchList() {
   const [, setLocation] = useLocation();
+  useTelegramBackButton(() => setLocation("/"));
   const initData = getTelegramInitData();
 
   const { data: campaigns, isLoading } = trpc.scratch.listCampaigns.useQuery();

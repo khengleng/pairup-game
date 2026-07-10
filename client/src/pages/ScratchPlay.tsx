@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useLocation, useRoute } from "wouter";
+import { useTelegramBackButton } from "@/lib/telegramUi";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -28,6 +29,7 @@ type Completion = {
 
 export default function ScratchPlay() {
   const [, setLocation] = useLocation();
+  useTelegramBackButton(() => setLocation("/scratch"));
   const [, params] = useRoute("/scratch/:id");
   const campaignId = params?.id ? parseInt(params.id, 10) : null;
   const initData = getTelegramInitData();

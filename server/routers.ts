@@ -979,6 +979,59 @@ export const appRouter = router({
         });
       }),
 
+    adminUpdateCampaign: protectedProcedure
+      .input(
+        z.object({
+          id: z.number().int().positive(),
+          name: z.string().trim().min(1).max(255).optional(),
+          description: z.string().max(2000).optional(),
+          config: z
+            .object({
+              winningCount: z.number().int().min(1).max(20),
+              playerCount: z.number().int().min(1).max(30),
+              minNumber: z.number().int().min(0).max(999),
+              maxNumber: z.number().int().min(1).max(999),
+              requiredMatches: z.number().int().min(1).max(20),
+            })
+            .optional(),
+          winProbabilityBps: z.number().int().min(0).max(10000).optional(),
+          dailyPlayLimit: z.number().int().min(0).max(1000).optional(),
+          termsUrl: z.string().url().max(512).optional(),
+          expiresAt: z.coerce.date().optional(),
+        })
+      )
+      .mutation(async ({ input, ctx }) => {
+        if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+        const { id, ...patch } = input;
+        return await scratch.updateCampaign(id, patch, {
+          id: ctx.user.id,
+          role: ctx.user.role,
+          ip: getClientIp(ctx.req),
+        });
+      }),
+
+    adminDeleteCampaign: protectedProcedure
+      .input(z.object({ id: z.number().int().positive() }))
+      .mutation(async ({ input, ctx }) => {
+        if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+        return await scratch.deleteCampaign(input.id, {
+          id: ctx.user.id,
+          role: ctx.user.role,
+          ip: getClientIp(ctx.req),
+        });
+      }),
+
+    adminDeletePrizeTier: protectedProcedure
+      .input(z.object({ id: z.number().int().positive() }))
+      .mutation(async ({ input, ctx }) => {
+        if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+        return await scratch.deletePrizeTier(input.id, {
+          id: ctx.user.id,
+          role: ctx.user.role,
+          ip: getClientIp(ctx.req),
+        });
+      }),
+
     adminAuditLog: protectedProcedure.query(async ({ ctx }) => {
       if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
       return await scratch.listAudit(100);

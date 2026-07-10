@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useLocation } from "wouter";
+import { useTelegramBackButton } from "@/lib/telegramUi";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -10,6 +11,7 @@ import { Footprints, Flame, Play, Square, Trophy } from "lucide-react";
 
 export default function WalkChallenge() {
   const [, setLocation] = useLocation();
+  useTelegramBackButton(() => setLocation("/"));
   const initData = getTelegramInitData();
   const utils = trpc.useUtils();
 

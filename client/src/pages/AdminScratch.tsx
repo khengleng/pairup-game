@@ -68,8 +68,33 @@ export default function AdminScratch() {
     },
     onError: e => toast.error(e.message || "Failed to add vouchers"),
   });
+  const updateCampaign = trpc.scratch.adminUpdateCampaign.useMutation({
+    onSuccess: async () => {
+      await utils.scratch.adminListCampaigns.invalidate();
+      await utils.scratch.adminGetCampaign.invalidate();
+      toast.success("Campaign updated");
+      resetForm();
+    },
+    onError: e => toast.error(e.message || "Failed to update campaign"),
+  });
+  const deleteCampaign = trpc.scratch.adminDeleteCampaign.useMutation({
+    onSuccess: async () => {
+      await utils.scratch.adminListCampaigns.invalidate();
+      setSelectedId(null);
+      toast.success("Campaign deleted");
+    },
+    onError: e => toast.error(e.message || "Failed to delete campaign"),
+  });
+  const deleteTier = trpc.scratch.adminDeletePrizeTier.useMutation({
+    onSuccess: async () => {
+      await utils.scratch.adminGetCampaign.invalidate();
+      toast.success("Prize tier deleted");
+    },
+    onError: e => toast.error(e.message || "Failed to delete tier"),
+  });
 
-  // Create-campaign form state.
+  // Campaign form state (create + edit a draft).
+  const [editingId, setEditingId] = useState<number | null>(null);
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [winningCount, setWinningCount] = useState(3);
@@ -83,13 +108,55 @@ export default function AdminScratch() {
   const [termsUrl, setTermsUrl] = useState("");
 
   const resetForm = () => {
+    setEditingId(null);
     setName("");
     setDescription("");
+    setWinningCount(3);
+    setPlayerCount(5);
+    setMinNumber(1);
+    setMaxNumber(30);
+    setRequiredMatches(2);
+    setWinPercent(20);
+    setDailyLimit(3);
+    setExpiresAt("");
+    setTermsUrl("");
+  };
+
+  const startEdit = (c: {
+    id: number;
+    name: string;
+    description: string | null;
+    config: unknown;
+    winProbabilityBps: number;
+    dailyPlayLimit: number;
+    termsUrl: string | null;
+    expiresAt: string | Date | null;
+  }) => {
+    const cfg = (typeof c.config === "string" ? JSON.parse(c.config) : c.config) as {
+      winningCount: number;
+      playerCount: number;
+      minNumber: number;
+      maxNumber: number;
+      requiredMatches: number;
+    };
+    setEditingId(c.id);
+    setName(c.name);
+    setDescription(c.description ?? "");
+    setWinningCount(cfg.winningCount);
+    setPlayerCount(cfg.playerCount);
+    setMinNumber(cfg.minNumber);
+    setMaxNumber(cfg.maxNumber);
+    setRequiredMatches(cfg.requiredMatches);
+    setWinPercent(c.winProbabilityBps / 100);
+    setDailyLimit(c.dailyPlayLimit);
+    setTermsUrl(c.termsUrl ?? "");
+    setExpiresAt(c.expiresAt ? new Date(c.expiresAt).toISOString().slice(0, 10) : "");
+    window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
   const submitCampaign = (e: React.FormEvent) => {
     e.preventDefault();
-    createCampaign.mutate({
+    const payload = {
       name,
       description: description || undefined,
       config: { winningCount, playerCount, minNumber, maxNumber, requiredMatches },
@@ -97,7 +164,23 @@ export default function AdminScratch() {
       dailyPlayLimit: dailyLimit,
       termsUrl: termsUrl || undefined,
       expiresAt: expiresAt ? new Date(expiresAt) : undefined,
-    });
+    };
+    if (editingId) updateCampaign.mutate({ id: editingId, ...payload });
+    else createCampaign.mutate(payload);
+  };
+
+  const confirmSetStatus = (
+    c: { id: number; name: string },
+    status: "draft" | "active" | "paused" | "ended"
+  ) => {
+    const msg =
+      status === "active"
+        ? `Activate "${c.name}"? It becomes live to players immediately.`
+        : status === "ended"
+          ? `End "${c.name}"? Players can no longer play it.`
+          : null;
+    if (msg && !window.confirm(msg)) return;
+    setStatus.mutate({ id: c.id, status });
   };
 
   // Not signed in → go to admin login (which returns here after sign-in).
@@ -125,9 +208,11 @@ export default function AdminScratch() {
 
         <div className="space-y-6">
         <div className="grid lg:grid-cols-[1fr_1.1fr] gap-6">
-          {/* Create campaign */}
+          {/* Create / edit campaign */}
           <Card className="p-6">
-            <h3 className="heading-md mb-1">New Campaign</h3>
+            <h3 className="heading-md mb-1">
+              {editingId ? "Edit Draft Campaign" : "New Campaign"}
+            </h3>
             <p className="text-sm text-gray-600 mb-4">
               Matching Winning Numbers. Created as a draft — add prizes, then set
               it Active.
@@ -201,10 +286,26 @@ export default function AdminScratch() {
                 Win chance sets how often the server awards a prize (subject to
                 inventory). Prizes and their required matches are added next.
               </p>
-              <Button type="submit" disabled={createCampaign.isPending}
-                className="w-full btn-primary">
-                {createCampaign.isPending ? "Creating…" : "Create draft campaign"}
-              </Button>
+              <div className="flex gap-2">
+                <Button
+                  type="submit"
+                  disabled={createCampaign.isPending || updateCampaign.isPending}
+                  className="flex-1 btn-primary"
+                >
+                  {editingId
+                    ? updateCampaign.isPending
+                      ? "Saving…"
+                      : "Save changes"
+                    : createCampaign.isPending
+                      ? "Creating…"
+                      : "Create draft campaign"}
+                </Button>
+                {editingId && (
+                  <Button type="button" variant="outline" onClick={resetForm}>
+                    Cancel
+                  </Button>
+                )}
+              </div>
             </form>
           </Card>
 
@@ -231,7 +332,7 @@ export default function AdminScratch() {
                     {STATUS_ACTIONS.filter(s => s !== c.status).map(s => (
                       <Button key={s} type="button" variant="outline" size="sm"
                         disabled={setStatus.isPending}
-                        onClick={() => setStatus.mutate({ id: c.id, status: s })}>
+                        onClick={() => confirmSetStatus(c, s)}>
                         {s === "active" ? "Activate" : s === "draft" ? "To draft"
                           : s === "paused" ? "Pause" : "End"}
                       </Button>
@@ -241,6 +342,24 @@ export default function AdminScratch() {
                       onClick={() => setSelectedId(selectedId === c.id ? null : c.id)}>
                       {selectedId === c.id ? "Close" : "Manage prizes"}
                     </Button>
+                    {c.status === "draft" && (
+                      <>
+                        <Button type="button" size="sm" variant="outline"
+                          onClick={() => startEdit(c)}>
+                          Edit
+                        </Button>
+                        <Button type="button" size="sm"
+                          className="text-red-600 border-red-200 hover:bg-red-50"
+                          variant="outline"
+                          disabled={deleteCampaign.isPending}
+                          onClick={() => {
+                            if (window.confirm(`Delete draft "${c.name}"? This can't be undone.`))
+                              deleteCampaign.mutate({ id: c.id });
+                          }}>
+                          Delete
+                        </Button>
+                      </>
+                    )}
                   </div>
                 </div>
               ))}
@@ -254,9 +373,9 @@ export default function AdminScratch() {
         {/* Prize management for selected campaign */}
         {selectedId && detail && (
           <Card className="p-6 space-y-5">
-            <div className="flex items-center justify-between">
+            <div className="flex flex-wrap items-center justify-between gap-3">
               <h3 className="heading-md">{detail.campaign.name} — prizes</h3>
-              <div className="text-sm text-gray-600 flex gap-4">
+              <div className="text-sm text-gray-600 flex flex-wrap gap-4">
                 <span>{detail.plays} plays</span>
                 <span>{detail.winners} winners</span>
                 <span>Exposure {money(detail.liability.maxExposureCents)}</span>
@@ -264,24 +383,72 @@ export default function AdminScratch() {
               </div>
             </div>
 
+            {/* Go-live readiness */}
+            <div className="rounded-lg bg-gray-50 border border-gray-200 p-4">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <p className="text-sm font-semibold text-gray-800 mb-1">
+                    Ready to go live?
+                  </p>
+                  <ul className="text-sm space-y-0.5">
+                    {[
+                      ["Win chance above 0%", detail.readiness.checks.hasWinChance],
+                      ["At least one prize tier", detail.readiness.checks.hasTier],
+                      ["Available prize inventory", detail.readiness.checks.hasInventory],
+                    ].map(([label, ok]) => (
+                      <li key={label as string} className={ok ? "text-green-700" : "text-gray-500"}>
+                        {ok ? "✅" : "⬜️"} {label}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+                {detail.campaign.status !== "active" ? (
+                  <Button
+                    disabled={!detail.readiness.ready || setStatus.isPending}
+                    onClick={() => confirmSetStatus(detail.campaign, "active")}
+                    className="btn-primary"
+                  >
+                    {detail.readiness.ready ? "Activate campaign" : "Not ready yet"}
+                  </Button>
+                ) : (
+                  <span className="text-sm font-semibold text-green-700">● Live</span>
+                )}
+              </div>
+            </div>
+
             {/* Tier list */}
             <div className="space-y-2">
-              {detail.tiers.map(t => (
-                <div key={t.id} className="flex flex-wrap items-center justify-between gap-3 border border-gray-200 rounded-lg p-3">
-                  <div>
-                    <p className="font-semibold text-gray-900">
-                      {t.name} · <span className="text-purple-600">{t.valueLabel}</span>
-                    </p>
-                    <p className="text-xs text-gray-500">
-                      needs {t.requiredMatches} matches · weight {t.weight} ·{" "}
-                      {t.remaining}/{t.totalQty} left · vouchers {t.voucherAvailable}/{t.voucherTotal}
-                    </p>
+              {detail.tiers.map(t => {
+                const locked = t.claimedQty > 0 || t.reservedQty > 0;
+                return (
+                  <div key={t.id} className="flex flex-wrap items-center justify-between gap-3 border border-gray-200 rounded-lg p-3">
+                    <div>
+                      <p className="font-semibold text-gray-900">
+                        {t.name} · <span className="text-purple-600">{t.valueLabel}</span>
+                      </p>
+                      <p className="text-xs text-gray-500">
+                        needs {t.requiredMatches} matches · weight {t.weight} ·{" "}
+                        {t.remaining}/{t.totalQty} left · vouchers {t.voucherAvailable}/{t.voucherTotal}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <AddVouchers tierId={t.id}
+                        onAdd={codes => addVouchers.mutate({ prizeTierId: t.id, codes })}
+                        pending={addVouchers.isPending} />
+                      <Button type="button" size="sm" variant="outline"
+                        className="text-red-600 border-red-200 hover:bg-red-50"
+                        disabled={locked || deleteTier.isPending}
+                        title={locked ? "Has awarded/reserved prizes" : "Delete tier"}
+                        onClick={() => {
+                          if (window.confirm(`Delete tier "${t.name}"?`))
+                            deleteTier.mutate({ id: t.id });
+                        }}>
+                        Delete
+                      </Button>
+                    </div>
                   </div>
-                  <AddVouchers tierId={t.id}
-                    onAdd={codes => addVouchers.mutate({ prizeTierId: t.id, codes })}
-                    pending={addVouchers.isPending} />
-                </div>
-              ))}
+                );
+              })}
               {detail.tiers.length === 0 && (
                 <p className="text-sm text-gray-500">No prize tiers yet — add one below.</p>
               )}
