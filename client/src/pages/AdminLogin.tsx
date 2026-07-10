@@ -17,6 +17,7 @@ export default function AdminLogin() {
   const isSetupLogin = location === "/setup";
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
+  const [code, setCode] = useState("");
 
   const loginMutation = trpc.auth.adminLogin.useMutation();
 
@@ -36,6 +37,7 @@ export default function AdminLogin() {
       await loginMutation.mutateAsync({
         username: username.trim() || undefined,
         password,
+        code: code.trim() || undefined,
       });
       // Refresh auth state so the context picks up the admin session cookie.
       await utils.auth.me.invalidate();
@@ -93,6 +95,17 @@ export default function AdminLogin() {
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               required
+            />
+          </div>
+          <div>
+            <Label htmlFor="code">2FA code (if enabled)</Label>
+            <Input
+              id="code"
+              inputMode="numeric"
+              autoComplete="one-time-code"
+              placeholder="6-digit code"
+              value={code}
+              onChange={(e) => setCode(e.target.value)}
             />
           </div>
 

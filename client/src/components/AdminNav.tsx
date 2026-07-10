@@ -4,7 +4,7 @@ import { Gamepad2, LogOut } from "lucide-react";
 import { toast } from "sonner";
 
 type AdminSection =
-  | "overview" | "scratch" | "claims" | "fraud" | "reports" | "team" | "approvals";
+  | "overview" | "scratch" | "claims" | "fraud" | "reports" | "team" | "approvals" | "security";
 
 const TABS: { key: AdminSection; label: string; path: string; perm: string | null }[] = [
   { key: "overview", label: "Overview", path: "/admin", perm: null },
@@ -14,6 +14,7 @@ const TABS: { key: AdminSection; label: string; path: string; perm: string | nul
   { key: "fraud", label: "Fraud", path: "/admin/fraud", perm: "fraud.view" },
   { key: "reports", label: "Reports", path: "/admin/reports", perm: "reports.view" },
   { key: "team", label: "Team", path: "/admin/team", perm: "team.manage" },
+  { key: "security", label: "Security", path: "/admin/security", perm: null },
 ];
 
 /** Shared top bar tying the admin sections into one portal. */

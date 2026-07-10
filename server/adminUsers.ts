@@ -5,6 +5,13 @@ import { TRPCError } from "@trpc/server";
 import { getDb } from "./db";
 import { adminUsers } from "../drizzle/schema";
 import { hashPassword, verifyPassword } from "./adminAuth";
+import {
+  generateTotpSecret,
+  otpauthUri,
+  verifyTotp,
+  encryptSecret,
+  decryptSecret,
+} from "./totp";
 import type { AdminRole } from "@shared/rbac";
 
 export async function getAdminUserById(id: number) {
@@ -81,14 +88,62 @@ export async function resetAdminPassword(id: number, password: string) {
   return { success: true };
 }
 
-/** Verify a username+password login; returns the account (or null). */
+/** Verify a username+password login. Returns the account (incl. MFA state) or null.
+ * Does NOT stamp lastLogin — that happens after any MFA step succeeds. */
 export async function verifyAdminAccount(username: string, password: string) {
   const account = await getAdminUserByUsername(username.trim().toLowerCase());
   if (!account || !account.active) return null;
   if (!verifyPassword(password, account.passwordHash)) return null;
+  return { id: account.id, role: account.role as AdminRole, mfaEnabled: account.mfaEnabled };
+}
+
+export async function stampLogin(id: number) {
   const db = await getDb();
-  if (db) {
-    await db.update(adminUsers).set({ lastLoginAt: new Date() }).where(eq(adminUsers.id, account.id));
+  if (db) await db.update(adminUsers).set({ lastLoginAt: new Date() }).where(eq(adminUsers.id, id));
+}
+
+/** Verify a TOTP code for an account with MFA enabled. */
+export async function verifyMfaCode(accountId: number, code: string): Promise<boolean> {
+  const account = await getAdminUserById(accountId);
+  if (!account || !account.mfaEnabled || !account.mfaSecret) return false;
+  const secret = decryptSecret(account.mfaSecret);
+  if (!secret) return false;
+  return verifyTotp(secret, code);
+}
+
+/** Start enrollment: store an encrypted secret (not yet enabled), return it + URI. */
+export async function setupMfa(accountId: number) {
+  const db = await getDb();
+  if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database not available" });
+  const account = await getAdminUserById(accountId);
+  if (!account) throw new TRPCError({ code: "NOT_FOUND" });
+  const secret = generateTotpSecret();
+  await db
+    .update(adminUsers)
+    .set({ mfaSecret: encryptSecret(secret), mfaEnabled: false })
+    .where(eq(adminUsers.id, accountId));
+  return { secret, otpauthUri: `${otpauthUri(account.username)}&secret=${secret}` };
+}
+
+/** Confirm a code against the pending secret and turn MFA on. */
+export async function enableMfa(accountId: number, code: string) {
+  const db = await getDb();
+  if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database not available" });
+  const account = await getAdminUserById(accountId);
+  if (!account?.mfaSecret) {
+    throw new TRPCError({ code: "BAD_REQUEST", message: "Start 2FA setup first." });
   }
-  return { id: account.id, role: account.role as AdminRole };
+  const secret = decryptSecret(account.mfaSecret);
+  if (!secret || !verifyTotp(secret, code)) {
+    throw new TRPCError({ code: "BAD_REQUEST", message: "That code didn't match. Try again." });
+  }
+  await db.update(adminUsers).set({ mfaEnabled: true }).where(eq(adminUsers.id, accountId));
+  return { success: true };
+}
+
+export async function disableMfa(accountId: number) {
+  const db = await getDb();
+  if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database not available" });
+  await db.update(adminUsers).set({ mfaEnabled: false, mfaSecret: null }).where(eq(adminUsers.id, accountId));
+  return { success: true };
 }

@@ -33,6 +33,7 @@ import {
 } from "./adminAuth";
 import * as adminUsers from "./adminUsers";
 import * as approvals from "./approvals";
+import { verifyTotp } from "./totp";
 import { requirePermission, can, effectiveRole } from "./perm";
 import {
   ROLE_PERMISSIONS,
@@ -281,6 +282,7 @@ export const appRouter = router({
         z.object({
           username: z.string().max(64).optional(),
           password: z.string().min(1).max(256),
+          code: z.string().max(12).optional(),
         })
       )
       .mutation(async ({ input, ctx }) => {
@@ -298,6 +300,15 @@ export const appRouter = router({
           if (!account) {
             throw new TRPCError({ code: "UNAUTHORIZED", message: "Invalid username or password." });
           }
+          if (account.mfaEnabled) {
+            if (!input.code) {
+              throw new TRPCError({ code: "UNAUTHORIZED", message: "2FA code required" });
+            }
+            if (!(await adminUsers.verifyMfaCode(account.id, input.code))) {
+              throw new TRPCError({ code: "UNAUTHORIZED", message: "Invalid 2FA code." });
+            }
+          }
+          await adminUsers.stampLogin(account.id);
           session = { adminUserId: account.id, role: account.role };
         } else {
           if (!isAdminPasswordConfigured()) {
@@ -308,6 +319,16 @@ export const appRouter = router({
           }
           if (!verifyAdminPassword(input.password)) {
             throw new TRPCError({ code: "UNAUTHORIZED", message: "Incorrect password." });
+          }
+          // Optional MFA for the master bootstrap via ADMIN_TOTP_SECRET.
+          const bootSecret = process.env.ADMIN_TOTP_SECRET;
+          if (bootSecret) {
+            if (!input.code) {
+              throw new TRPCError({ code: "UNAUTHORIZED", message: "2FA code required" });
+            }
+            if (!verifyTotp(bootSecret, input.code)) {
+              throw new TRPCError({ code: "UNAUTHORIZED", message: "Invalid 2FA code." });
+            }
           }
           session = { adminUserId: BOOTSTRAP_ADMIN_ID, role: "super_admin" };
         }
@@ -321,15 +342,42 @@ export const appRouter = router({
         return { success: true };
       }),
 
-    // The current admin's role + permissions (drives the admin UI).
-    adminMe: publicProcedure.query(({ ctx }) => {
+    // The current admin's role + permissions + MFA state (drives the admin UI).
+    adminMe: publicProcedure.query(async ({ ctx }) => {
       const role = effectiveRole(ctx);
+      let mfaEnabled = false;
+      let canEnrollMfa = false;
+      if (role && ctx.adminUserId && ctx.adminUserId > 0) {
+        canEnrollMfa = true;
+        const account = await adminUsers.getAdminUserById(ctx.adminUserId);
+        mfaEnabled = account?.mfaEnabled ?? false;
+      }
       return {
         isAdmin: !!role,
         role,
         name: ctx.adminName,
         permissions: role ? ROLE_PERMISSIONS[role] : [],
+        mfaEnabled,
+        canEnrollMfa,
       };
+    }),
+
+    // Self-service 2FA enrollment for the signed-in admin account.
+    mfaSetup: publicProcedure.mutation(async ({ ctx }) => {
+      if (!ctx.adminUserId || ctx.adminUserId <= 0) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "The master account enrolls 2FA via ADMIN_TOTP_SECRET." });
+      }
+      return await adminUsers.setupMfa(ctx.adminUserId);
+    }),
+    mfaEnable: publicProcedure
+      .input(z.object({ code: z.string().min(6).max(6) }))
+      .mutation(async ({ input, ctx }) => {
+        if (!ctx.adminUserId || ctx.adminUserId <= 0) throw new TRPCError({ code: "FORBIDDEN" });
+        return await adminUsers.enableMfa(ctx.adminUserId, input.code);
+      }),
+    mfaDisable: publicProcedure.mutation(async ({ ctx }) => {
+      if (!ctx.adminUserId || ctx.adminUserId <= 0) throw new TRPCError({ code: "FORBIDDEN" });
+      return await adminUsers.disableMfa(ctx.adminUserId);
     }),
 
     adminLogout: publicProcedure.mutation(({ ctx }) => {

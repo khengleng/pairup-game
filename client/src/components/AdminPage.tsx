@@ -5,7 +5,7 @@ import { Card } from "@/components/ui/card";
 import AdminNav from "@/components/AdminNav";
 
 type AdminSection =
-  | "overview" | "scratch" | "claims" | "fraud" | "reports" | "team" | "approvals";
+  | "overview" | "scratch" | "claims" | "fraud" | "reports" | "team" | "approvals" | "security";
 
 /** Auth-guarded admin layout with the shared nav. */
 export default function AdminPage({

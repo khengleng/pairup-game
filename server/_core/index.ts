@@ -22,6 +22,29 @@ import {
   startDailyNudgeScheduler,
 } from "../telegram";
 import { getHealth, reportError, startMonitoring } from "../monitoring";
+import { ADMIN_COOKIE } from "../adminAuth";
+
+// Origins allowed to make state-changing admin requests (CSRF defense).
+const ALLOWED_ADMIN_HOSTS = new Set([
+  "game.cambobia.com",
+  "pairup-game.up.railway.app",
+  "localhost",
+  "127.0.0.1",
+]);
+try {
+  const u = new URL(process.env.PUBLIC_URL ?? "");
+  if (u.hostname) ALLOWED_ADMIN_HOSTS.add(u.hostname);
+} catch {
+  /* PUBLIC_URL unset — fine */
+}
+function hostFromHeader(v: unknown): string | null {
+  if (typeof v !== "string" || !v) return null;
+  try {
+    return new URL(v).hostname;
+  } catch {
+    return null;
+  }
+}
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -82,6 +105,23 @@ async function startServer() {
   registerStorageProxy(app);
   registerOAuthRoutes(app);
   registerTelegramBot(app);
+
+  // CSRF: a state-changing request carrying the admin session cookie must come
+  // from an allowed origin. Player/Telegram calls (no admin cookie) are exempt.
+  app.use("/api/trpc", (req, res, next) => {
+    if (req.method !== "GET" && req.method !== "HEAD") {
+      const hasAdminCookie = (req.headers.cookie ?? "").includes(`${ADMIN_COOKIE}=`);
+      if (hasAdminCookie) {
+        const host =
+          hostFromHeader(req.headers.origin) ?? hostFromHeader(req.headers.referer);
+        if (!host || !ALLOWED_ADMIN_HOSTS.has(host)) {
+          return res.status(403).json({ error: "Cross-origin admin request blocked." });
+        }
+      }
+    }
+    next();
+  });
+
   // tRPC API
   app.use(
     "/api/trpc",

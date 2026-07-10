@@ -543,6 +543,9 @@ export const adminUsers = mysqlTable("adminUsers", {
     "auditor",
   ]).notNull(),
   active: boolean("active").default(true).notNull(),
+  /** TOTP MFA: AES-GCM-encrypted secret + whether it's active. */
+  mfaSecret: varchar("mfaSecret", { length: 255 }),
+  mfaEnabled: boolean("mfaEnabled").default(false).notNull(),
   createdBy: int("createdBy"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   lastLoginAt: timestamp("lastLoginAt"),
