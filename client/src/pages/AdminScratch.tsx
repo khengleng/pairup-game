@@ -135,6 +135,11 @@ export default function AdminScratch() {
   const [gridSize, setGridSize] = useState(3);
   const [patternPool, setPatternPool] = useState("★, ●, ▲, ◆");
   const [patternSet, setPatternSet] = useState<PatternId[]>(["row", "col", "diag"]);
+  // Compliance (optional)
+  const [minAge, setMinAge] = useState(0);
+  const [countries, setCountries] = useState("");
+  const [kycDollars, setKycDollars] = useState(0);
+  const [disclaimer, setDisclaimer] = useState("");
 
   const parseList = (s: string) => s.split(",").map(x => x.trim()).filter(Boolean);
 
@@ -166,6 +171,10 @@ export default function AdminScratch() {
     setGridSize(3);
     setPatternPool("★, ●, ▲, ◆");
     setPatternSet(["row", "col", "diag"]);
+    setMinAge(0);
+    setCountries("");
+    setKycDollars(0);
+    setDisclaimer("");
   };
 
   const startEdit = (c: {
@@ -177,6 +186,10 @@ export default function AdminScratch() {
     winProbabilityBps: number;
     dailyPlayLimit: number;
     termsUrl: string | null;
+    minAge?: number;
+    countries?: string | null;
+    kycThresholdCents?: number;
+    disclaimer?: string | null;
     expiresAt: string | Date | null;
   }) => {
     const cfg = (typeof c.config === "string" ? JSON.parse(c.config) : c.config) as any;
@@ -202,6 +215,10 @@ export default function AdminScratch() {
     setWinPercent(c.winProbabilityBps / 100);
     setDailyLimit(c.dailyPlayLimit);
     setTermsUrl(c.termsUrl ?? "");
+    setMinAge(c.minAge ?? 0);
+    setCountries(c.countries ?? "");
+    setKycDollars((c.kycThresholdCents ?? 0) / 100);
+    setDisclaimer(c.disclaimer ?? "");
     setExpiresAt(c.expiresAt ? new Date(c.expiresAt).toISOString().slice(0, 10) : "");
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
@@ -215,6 +232,10 @@ export default function AdminScratch() {
       winProbabilityBps: Math.round(winPercent * 100),
       dailyPlayLimit: dailyLimit,
       termsUrl: termsUrl || undefined,
+      minAge,
+      countries: countries || undefined,
+      kycThresholdCents: Math.round(kycDollars * 100),
+      disclaimer: disclaimer || undefined,
       expiresAt: expiresAt ? new Date(expiresAt) : undefined,
     };
     if (editingId) updateCampaign.mutate({ id: editingId, ...common });
@@ -422,6 +443,43 @@ export default function AdminScratch() {
                 Win chance sets how often the server awards a prize (subject to
                 inventory). Prizes and their required matches are added next.
               </p>
+
+              {/* Compliance (optional) */}
+              <details className="rounded-lg border border-gray-200 p-3">
+                <summary className="text-sm font-semibold text-gray-700 cursor-pointer">
+                  Compliance (optional)
+                </summary>
+                <div className="mt-3 space-y-3">
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <Label>Min age (0 = none)</Label>
+                      <Input type="number" min={0} max={120} value={minAge}
+                        onChange={e => setMinAge(+e.target.value)} />
+                    </div>
+                    <div>
+                      <Label>KYC over $ (0 = off)</Label>
+                      <Input type="number" min={0} step="0.01" value={kycDollars}
+                        onChange={e => setKycDollars(+e.target.value)} />
+                    </div>
+                  </div>
+                  <div>
+                    <Label>Allowed countries (comma-separated; blank = all)</Label>
+                    <Input value={countries} onChange={e => setCountries(e.target.value)}
+                      placeholder="Cambodia, Thailand, Vietnam" />
+                  </div>
+                  <div>
+                    <Label>Disclaimer / responsible-play note</Label>
+                    <Textarea rows={2} value={disclaimer}
+                      onChange={e => setDisclaimer(e.target.value)}
+                      placeholder="Promotional game. No purchase necessary. Prizes may be subject to tax…" />
+                  </div>
+                  <p className="text-xs text-gray-400">
+                    Age / country / a Terms URL trigger an eligibility gate before the
+                    first play. Wins at or above the KYC amount are held for identity
+                    review instead of paying out instantly.
+                  </p>
+                </div>
+              </details>
               <div className="flex gap-2">
                 <Button
                   type="submit"

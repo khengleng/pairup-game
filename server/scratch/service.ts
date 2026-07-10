@@ -15,6 +15,7 @@ import {
   scratchSessions,
   scratchAwards,
   auditLogs,
+  termsAcceptances,
 } from "../../drizzle/schema";
 import type {
   ScratchCampaign,
@@ -297,6 +298,115 @@ function buildCardAndOutcome(
   };
 }
 
+// ---------------------------------------------------------------------------
+// Compliance (age / country / T&C gate before first play)
+// ---------------------------------------------------------------------------
+
+function parseCountries(csv: string | null): string[] {
+  return (csv ?? "").split(",").map(s => s.trim()).filter(Boolean);
+}
+
+export async function getCompliance(campaignId: number, userId: number | null) {
+  const db = await getDb();
+  if (!db) return null;
+  const [campaign] = await db
+    .select()
+    .from(scratchCampaigns)
+    .where(eq(scratchCampaigns.id, campaignId))
+    .limit(1);
+  if (!campaign) return null;
+  const countries = parseCountries(campaign.countries);
+  const required =
+    campaign.minAge > 0 || countries.length > 0 || !!campaign.termsUrl;
+  let accepted = false;
+  if (required && userId) {
+    const rows = await db
+      .select({ id: termsAcceptances.id })
+      .from(termsAcceptances)
+      .where(
+        and(
+          eq(termsAcceptances.userId, userId),
+          eq(termsAcceptances.campaignId, campaignId)
+        )
+      )
+      .limit(1);
+    accepted = rows.length > 0;
+  }
+  return {
+    required,
+    accepted,
+    minAge: campaign.minAge,
+    countries,
+    termsUrl: campaign.termsUrl,
+    disclaimer: campaign.disclaimer,
+  };
+}
+
+export async function acceptTerms(params: {
+  campaignId: number;
+  userId: number;
+  ageConfirmed: boolean;
+  country?: string;
+  ip?: string;
+}) {
+  const db = await getDbOrThrow();
+  const [campaign] = await db
+    .select()
+    .from(scratchCampaigns)
+    .where(eq(scratchCampaigns.id, params.campaignId))
+    .limit(1);
+  if (!campaign) throw new TRPCError({ code: "NOT_FOUND" });
+
+  if (campaign.minAge > 0 && !params.ageConfirmed) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: `You must confirm you're at least ${campaign.minAge} to play.`,
+    });
+  }
+  const countries = parseCountries(campaign.countries);
+  if (countries.length > 0) {
+    if (!params.country || !countries.includes(params.country)) {
+      throw new TRPCError({
+        code: "FORBIDDEN",
+        message: "This campaign isn't available in your country.",
+      });
+    }
+  }
+
+  // Idempotent: one acceptance per player per campaign.
+  const existing = await db
+    .select({ id: termsAcceptances.id })
+    .from(termsAcceptances)
+    .where(
+      and(
+        eq(termsAcceptances.userId, params.userId),
+        eq(termsAcceptances.campaignId, params.campaignId)
+      )
+    )
+    .limit(1);
+  if (existing.length === 0) {
+    await db.insert(termsAcceptances).values({
+      userId: params.userId,
+      campaignId: params.campaignId,
+      ageConfirmed: params.ageConfirmed,
+      country: params.country ?? null,
+      ip: params.ip ?? null,
+    });
+  }
+  return { success: true };
+}
+
+/** Throws PRECONDITION_FAILED if the player hasn't cleared the compliance gate. */
+async function assertCompliance(campaignId: number, userId: number) {
+  const c = await getCompliance(campaignId, userId);
+  if (c?.required && !c.accepted) {
+    throw new TRPCError({
+      code: "PRECONDITION_FAILED",
+      message: "Please confirm eligibility (age / country / terms) before playing.",
+    });
+  }
+}
+
 export async function play(params: {
   campaignId: number;
   userId: number;
@@ -331,6 +441,9 @@ export async function play(params: {
       });
     }
   }
+
+  // Compliance gate (age / country / T&C) must be cleared first.
+  await assertCompliance(params.campaignId, params.userId);
 
   const config = asObject<unknown>(campaign.config);
   if (validateConfig(campaign.gameType, config)) {
@@ -514,9 +627,18 @@ export async function complete(params: {
       })
       .where(eq(scratchPrizeTiers.id, session.prizeTierId));
 
+    // High-value prizes need identity verification before the code is released.
+    const [campaign] = await tx
+      .select({ kyc: scratchCampaigns.kycThresholdCents })
+      .from(scratchCampaigns)
+      .where(eq(scratchCampaigns.id, session.campaignId))
+      .limit(1);
+    const needsKyc =
+      (campaign?.kyc ?? 0) > 0 && (tier?.valueCents ?? 0) >= (campaign?.kyc ?? 0);
+
     const claimRef = generateClaimRef();
-    // A delivered voucher code is fulfilled; otherwise it awaits manual fulfilment.
-    const status = voucher ? "fulfilled" : "pending";
+    // KYC → held for review; a delivered voucher is fulfilled; else manual.
+    const status = needsKyc ? "verification" : voucher ? "fulfilled" : "pending";
     await tx.insert(scratchAwards).values({
       sessionId: session.id,
       campaignId: session.campaignId,
@@ -531,7 +653,8 @@ export async function complete(params: {
       isWinner: true,
       claimRef,
       prizeLabel: tier?.valueLabel ?? null,
-      voucherCode: voucher?.code ?? null,
+      // Withhold the code until identity is verified for high-value wins.
+      voucherCode: needsKyc ? null : voucher?.code ?? null,
       status,
     };
   });
@@ -622,6 +745,8 @@ export type CreateCampaignInput = {
   minAge?: number;
   countries?: string;
   termsUrl?: string;
+  kycThresholdCents?: number;
+  disclaimer?: string;
   startsAt?: Date;
   expiresAt?: Date;
 };
@@ -656,6 +781,8 @@ export async function createCampaign(
     minAge: input.minAge ?? 0,
     countries: input.countries ?? null,
     termsUrl: input.termsUrl ?? null,
+    kycThresholdCents: input.kycThresholdCents ?? 0,
+    disclaimer: input.disclaimer ?? null,
     startsAt: input.startsAt ?? null,
     expiresAt: input.expiresAt ?? null,
     createdBy: actor.id,
@@ -887,6 +1014,8 @@ export async function updateCampaign(
   if (input.minAge !== undefined) patch.minAge = input.minAge;
   if (input.countries !== undefined) patch.countries = input.countries ?? null;
   if (input.termsUrl !== undefined) patch.termsUrl = input.termsUrl ?? null;
+  if (input.kycThresholdCents !== undefined) patch.kycThresholdCents = input.kycThresholdCents;
+  if (input.disclaimer !== undefined) patch.disclaimer = input.disclaimer ?? null;
   if (input.expiresAt !== undefined) patch.expiresAt = input.expiresAt ?? null;
   await db.update(scratchCampaigns).set(patch).where(eq(scratchCampaigns.id, id));
   await writeAudit({

@@ -313,9 +313,13 @@ export const scratchCampaigns = mysqlTable("scratchCampaigns", {
   dailyPlayLimit: int("dailyPlayLimit").default(0).notNull(),
   /** Minimum age to play; 0 = no gate. */
   minAge: int("minAge").default(0).notNull(),
-  /** CSV ISO country allowlist; null = all countries. */
+  /** CSV country allowlist; null/empty = all countries. */
   countries: varchar("countries", { length: 255 }),
   termsUrl: varchar("termsUrl", { length: 512 }),
+  /** Prize value (cents) at/above which a win needs identity verification. 0 = off. */
+  kycThresholdCents: int("kycThresholdCents").default(0).notNull(),
+  /** Responsible-play / tax / legal disclaimer shown to players. */
+  disclaimer: text("disclaimer"),
   startsAt: timestamp("startsAt"),
   expiresAt: timestamp("expiresAt"),
   createdBy: int("createdBy"),
@@ -451,3 +455,20 @@ export const auditLogs = mysqlTable("auditLogs", {
 
 export type AuditLog = typeof auditLogs.$inferSelect;
 export type InsertAuditLog = typeof auditLogs.$inferInsert;
+
+/**
+ * A player's acceptance of a campaign's eligibility terms (age, country, T&C).
+ * One row per player per campaign — the compliance gate before first play.
+ */
+export const termsAcceptances = mysqlTable("termsAcceptances", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull(),
+  campaignId: int("campaignId").notNull(),
+  ageConfirmed: boolean("ageConfirmed").default(false).notNull(),
+  country: varchar("country", { length: 64 }),
+  ip: varchar("ip", { length: 64 }),
+  acceptedAt: timestamp("acceptedAt").defaultNow().notNull(),
+});
+
+export type TermsAcceptance = typeof termsAcceptances.$inferSelect;
+export type InsertTermsAcceptance = typeof termsAcceptances.$inferInsert;

@@ -823,6 +823,39 @@ export const appRouter = router({
         return await scratch.getPublicCampaign(input.id);
       }),
 
+    getCompliance: publicProcedure
+      .input(
+        z.object({
+          campaignId: z.number().int().positive(),
+          initData: z.string().optional(),
+        })
+      )
+      .query(async ({ input, ctx }) => {
+        const player = ctx.user ?? (await resolveTelegramUser(input.initData));
+        return await scratch.getCompliance(input.campaignId, player?.id ?? null);
+      }),
+
+    acceptTerms: publicProcedure
+      .input(
+        z.object({
+          campaignId: z.number().int().positive(),
+          ageConfirmed: z.boolean(),
+          country: z.string().max(64).optional(),
+          initData: z.string().optional(),
+        })
+      )
+      .mutation(async ({ input, ctx }) => {
+        const player = ctx.user ?? (await resolveTelegramUser(input.initData));
+        if (!player?.id) throw new TRPCError({ code: "UNAUTHORIZED" });
+        return await scratch.acceptTerms({
+          campaignId: input.campaignId,
+          userId: player.id,
+          ageConfirmed: input.ageConfirmed,
+          country: input.country,
+          ip: getClientIp(ctx.req),
+        });
+      }),
+
     start: publicProcedure
       .input(
         z.object({
@@ -920,6 +953,8 @@ export const appRouter = router({
           minAge: z.number().int().min(0).max(120).optional(),
           countries: z.string().max(255).optional(),
           termsUrl: z.string().url().max(512).optional(),
+          kycThresholdCents: z.number().int().min(0).optional(),
+          disclaimer: z.string().max(2000).optional(),
           startsAt: z.coerce.date().optional(),
           expiresAt: z.coerce.date().optional(),
         })
@@ -997,7 +1032,11 @@ export const appRouter = router({
           config: z.record(z.string(), z.any()).optional(),
           winProbabilityBps: z.number().int().min(0).max(10000).optional(),
           dailyPlayLimit: z.number().int().min(0).max(1000).optional(),
+          minAge: z.number().int().min(0).max(120).optional(),
+          countries: z.string().max(255).optional(),
           termsUrl: z.string().url().max(512).optional(),
+          kycThresholdCents: z.number().int().min(0).optional(),
+          disclaimer: z.string().max(2000).optional(),
           expiresAt: z.coerce.date().optional(),
         })
       )

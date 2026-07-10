@@ -79,6 +79,18 @@ export default function ScratchPlay() {
   );
   const startMutation = trpc.scratch.start.useMutation();
   const completeMutation = trpc.scratch.complete.useMutation();
+  const { data: compliance } = trpc.scratch.getCompliance.useQuery(
+    { campaignId: campaignId ?? 0, initData },
+    { enabled: !!campaignId }
+  );
+  const acceptTerms = trpc.scratch.acceptTerms.useMutation({
+    onSuccess: async () => {
+      await utils.scratch.getCompliance.invalidate();
+    },
+    onError: e => toast.error(e.message || "Couldn't record your acceptance."),
+  });
+  const [ageOk, setAgeOk] = useState(false);
+  const [country, setCountry] = useState("");
 
   const [play, setPlay] = useState<PlayState | null>(null);
   const [revealed, setRevealed] = useState(false);
@@ -225,13 +237,71 @@ export default function ScratchPlay() {
 
           {!play ? (
             <div className="text-center space-y-4">
-              <p className="text-sm text-gray-600">
-                Tap below for a fresh card, then scratch to reveal your result.
-              </p>
-              <Button onClick={handleStart} disabled={startMutation.isPending}
-                className="w-full btn-primary text-lg py-6">
-                {startMutation.isPending ? "Dealing…" : "Get a card"}
-              </Button>
+              {compliance?.disclaimer && (
+                <p className="text-xs text-gray-500 bg-gray-50 rounded-lg p-3 text-left">
+                  {compliance.disclaimer}
+                </p>
+              )}
+
+              {compliance?.required && !compliance.accepted ? (
+                <div className="text-left space-y-3 border border-purple-200 rounded-lg p-4">
+                  <p className="font-semibold text-gray-800">Before you play</p>
+                  {compliance.minAge > 0 && (
+                    <label className="flex items-start gap-2 text-sm text-gray-700">
+                      <input type="checkbox" checked={ageOk}
+                        onChange={e => setAgeOk(e.target.checked)} className="mt-1" />
+                      <span>I confirm I am at least {compliance.minAge} years old.</span>
+                    </label>
+                  )}
+                  {compliance.countries.length > 0 && (
+                    <div className="text-sm">
+                      <label className="block text-gray-700 mb-1">Your country</label>
+                      <select value={country} onChange={e => setCountry(e.target.value)}
+                        className="w-full h-9 rounded-md border border-gray-300 px-2">
+                        <option value="">Select…</option>
+                        {compliance.countries.map(c => (
+                          <option key={c} value={c}>{c}</option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+                  {compliance.termsUrl && (
+                    <p className="text-xs text-gray-500">
+                      By continuing you accept the{" "}
+                      <a href={compliance.termsUrl} target="_blank" rel="noopener noreferrer"
+                        className="underline text-purple-600">terms &amp; conditions</a>.
+                    </p>
+                  )}
+                  <Button
+                    onClick={() =>
+                      acceptTerms.mutate({
+                        campaignId: campaignId!,
+                        initData,
+                        ageConfirmed: compliance.minAge > 0 ? ageOk : true,
+                        country: compliance.countries.length > 0 ? country : undefined,
+                      })
+                    }
+                    disabled={
+                      acceptTerms.isPending ||
+                      (compliance.minAge > 0 && !ageOk) ||
+                      (compliance.countries.length > 0 && !country)
+                    }
+                    className="w-full btn-primary"
+                  >
+                    {acceptTerms.isPending ? "…" : "I agree — continue"}
+                  </Button>
+                </div>
+              ) : (
+                <>
+                  <p className="text-sm text-gray-600">
+                    Tap below for a fresh card, then scratch to reveal your result.
+                  </p>
+                  <Button onClick={handleStart} disabled={startMutation.isPending}
+                    className="w-full btn-primary text-lg py-6">
+                    {startMutation.isPending ? "Dealing…" : "Get a card"}
+                  </Button>
+                </>
+              )}
               {campaign.prizes.length > 0 && (
                 <div className="text-left">
                   <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
@@ -293,6 +363,8 @@ export default function ScratchPlay() {
                           <span className="font-mono">{completion.claimRef}</span>
                           {completion.status === "pending" &&
                             " · we'll be in touch to fulfil your prize."}
+                          {completion.status === "verification" &&
+                            " · we'll verify your identity before releasing this prize."}
                         </p>
                       )}
                     </div>
