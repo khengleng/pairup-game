@@ -110,6 +110,59 @@ export function getKlaklokSymbol(id: string): KlaklokSymbol | undefined {
   return KLAKLOK_SYMBOLS.find(s => s.id === id);
 }
 
+export function isKlaklokSymbol(id: string): boolean {
+  return KLAKLOK_SYMBOLS.some(s => s.id === id);
+}
+
+// ---------------------------------------------------------------------------
+// Klaklok betting — the authentic payout: pick a symbol, stake chips, and win
+// by how many of that symbol land. Miss = lose the stake; one/two/three land =
+// win 1×/2×/3× the stake (the traditional Kla Klouk / fish-prawn-crab payout).
+// ---------------------------------------------------------------------------
+
+/** Stakes a player can bet, in chips. */
+export const KLAKLOK_STAKES = [5, 10, 25, 50] as const;
+
+export function isKlaklokStake(value: number): boolean {
+  return (KLAKLOK_STAKES as readonly number[]).includes(value);
+}
+
+export type KlaklokBet = {
+  /** The three rolled symbol ids. */
+  symbols: string[];
+  /** The symbol the player bet on. */
+  pick: string;
+  /** Chips staked. */
+  stake: number;
+  /** How many of the three dice matched the pick (0–3). */
+  count: number;
+  /** Net chips: +count×stake on a hit, −stake on a miss. */
+  net: number;
+  /** Payout multiplier applied to the stake (0 on a miss). */
+  multiplier: number;
+  /** True when all three dice matched the pick. */
+  isJackpot: boolean;
+};
+
+/** Settle a Klaklok bet against a rolled set of symbols. */
+export function scoreKlaklokBet(
+  symbols: string[],
+  pick: string,
+  stake: number
+): KlaklokBet {
+  const count = symbols.filter(s => s === pick).length;
+  const net = count > 0 ? count * stake : -stake;
+  return {
+    symbols,
+    pick,
+    stake,
+    count,
+    net,
+    multiplier: count,
+    isJackpot: count === 3,
+  };
+}
+
 /** A "jackpot" is the headline win a game tracks a running count of. */
 export function isDiceJackpot(roll: DiceRoll): boolean {
   return roll.isDoubles;

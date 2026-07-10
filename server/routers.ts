@@ -36,7 +36,9 @@ import {
   rollDice,
   rollKlaklok,
   isDiceJackpot,
-  isKlaklokJackpot,
+  scoreKlaklokBet,
+  isKlaklokSymbol,
+  isKlaklokStake,
 } from "@shared/shakeLogic";
 import { GAME_CATALOG, isGameId, resolveGameToggles } from "@shared/games";
 import {
@@ -721,7 +723,14 @@ export const appRouter = router({
       }),
 
     rollKlaklok: publicProcedure
-      .input(z.object({ initData: z.string().optional() }))
+      .input(
+        z.object({
+          // The symbol the player bets on, and the chips they stake.
+          pick: z.string().refine(isKlaklokSymbol, "Unknown symbol"),
+          stake: z.number().int().refine(isKlaklokStake, "Invalid stake"),
+          initData: z.string().optional(),
+        })
+      )
       .mutation(async ({ input, ctx }) => {
         const ip = getClientIp(ctx.req);
         if (!rateLimit(`shakeRoll:${ip}`, 120, 60_000).allowed) {
@@ -730,18 +739,19 @@ export const appRouter = router({
             message: "Too many rolls. Please slow down.",
           });
         }
-        const roll = rollKlaklok();
+        const { symbols } = rollKlaklok();
+        const bet = scoreKlaklokBet(symbols, input.pick, input.stake);
         const player = ctx.user ?? (await resolveTelegramUser(input.initData));
         const stats = player?.id
           ? await db.recordShakeRoll({
               userId: player.id,
               playerName: player.name || undefined,
               game: "klaklok",
-              score: roll.score,
-              isJackpot: isKlaklokJackpot(roll),
+              score: bet.net,
+              isJackpot: bet.isJackpot,
             })
           : null;
-        return { roll, stats };
+        return { bet, stats };
       }),
 
     getMyStats: publicProcedure

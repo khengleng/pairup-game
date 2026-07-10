@@ -882,7 +882,8 @@ export async function recordShakeRoll(params: {
     userId: params.userId,
     playerName: params.playerName ?? null,
     game: params.game,
-    bestScore: params.score,
+    // bestScore tracks the best single win, so never let a loss seed it negative.
+    bestScore: Math.max(0, params.score),
     totalRolls: 1,
     totalScore: params.score,
     jackpots: params.isJackpot ? 1 : 0,
@@ -917,11 +918,16 @@ export async function getShakeLeaderboard(
 ) {
   const db = await getDb();
   if (!db) return [];
+  // Klaklok is a betting game — rank by total winnings; dice by best roll.
+  const order =
+    game === "klaklok"
+      ? [desc(shakeStats.totalScore), desc(shakeStats.bestScore)]
+      : [desc(shakeStats.bestScore), desc(shakeStats.totalScore)];
   return await db
     .select()
     .from(shakeStats)
     .where(eq(shakeStats.game, game))
-    .orderBy(desc(shakeStats.bestScore), desc(shakeStats.totalScore))
+    .orderBy(...order)
     .limit(topN);
 }
 

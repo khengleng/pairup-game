@@ -3,6 +3,7 @@ import {
   rollDice,
   rollKlaklok,
   classifyKlaklok,
+  scoreKlaklokBet,
   KLAKLOK_SYMBOLS,
   type Rng,
 } from "@shared/shakeLogic";
@@ -68,5 +69,35 @@ describe("rollKlaklok", () => {
     expect(single.match).toBe("single");
     expect(triple.score).toBeGreaterThan(pair.score);
     expect(pair.score).toBeGreaterThan(single.score);
+  });
+});
+
+describe("scoreKlaklokBet", () => {
+  it("loses the stake when the pick misses", () => {
+    const bet = scoreKlaklokBet(["tiger", "crab", "gourd"], "fish", 10);
+    expect(bet.count).toBe(0);
+    expect(bet.multiplier).toBe(0);
+    expect(bet.net).toBe(-10);
+    expect(bet.isJackpot).toBe(false);
+  });
+
+  it("pays 1× when the pick lands once", () => {
+    const bet = scoreKlaklokBet(["fish", "crab", "gourd"], "fish", 10);
+    expect(bet.count).toBe(1);
+    expect(bet.net).toBe(10);
+  });
+
+  it("pays 2× on a pair", () => {
+    const bet = scoreKlaklokBet(["fish", "fish", "gourd"], "fish", 25);
+    expect(bet.count).toBe(2);
+    expect(bet.net).toBe(50);
+    expect(bet.isJackpot).toBe(false);
+  });
+
+  it("pays 3× and flags a jackpot on a triple", () => {
+    const bet = scoreKlaklokBet(["fish", "fish", "fish"], "fish", 5);
+    expect(bet.count).toBe(3);
+    expect(bet.net).toBe(15);
+    expect(bet.isJackpot).toBe(true);
   });
 });
