@@ -14,6 +14,7 @@ import Klaklok from "./pages/Klaklok";
 import PhotoMemory from "./pages/PhotoMemory";
 import ScratchList from "./pages/ScratchList";
 import ScratchPlay from "./pages/ScratchPlay";
+import Wallet from "./pages/Wallet";
 import AdminDashboard from "./pages/AdminDashboard";
 import AdminScratch from "./pages/AdminScratch";
 import AdminClaims from "./pages/AdminClaims";
@@ -36,6 +37,7 @@ function Router() {
       <Route path={"/photos"} component={PhotoMemory} />
       <Route path={"/scratch"} component={ScratchList} />
       <Route path={"/scratch/:campaignId"} component={ScratchPlay} />
+      <Route path={"/wallet"} component={Wallet} />
       <Route path={"/setup"} component={AdminLogin} />
       <Route path={"/admin/login"} component={AdminLogin} />
       <Route path={"/admin"} component={AdminDashboard} />

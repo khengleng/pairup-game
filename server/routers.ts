@@ -43,6 +43,7 @@ import {
 import { GAME_CATALOG, isGameId, resolveGameToggles } from "@shared/games";
 import * as scratch from "./scratch/service";
 import * as scratchOps from "./scratch/ops";
+import * as rewards from "./rewards";
 import {
   codeMatches,
   expiryFromNow,
@@ -498,6 +499,13 @@ export const appRouter = router({
               }
             }
           }
+
+          // Rewards: points for completing a game (more for the daily).
+          await rewards.awardPoints(
+            player.id,
+            daily ? rewards.POINTS.dailyWin : rewards.POINTS.memoryWin,
+            daily ? "Daily challenge" : "Completed a memory game"
+          );
         }
 
         // Return the validated values so the client shows the recorded score.
@@ -658,6 +666,7 @@ export const appRouter = router({
         if (goalMet) {
           const state = await db.updateUserWalkStreak(player.id, todayKey);
           if (state) streak = state.streak;
+          await rewards.awardPoints(player.id, rewards.POINTS.walkGoal, "Hit your step goal");
         }
         return { steps, total, goal, goalMet, streak };
       }),
@@ -904,10 +913,14 @@ export const appRouter = router({
       .mutation(async ({ input, ctx }) => {
         const player = ctx.user ?? (await resolveTelegramUser(input.initData));
         if (!player?.id) throw new TRPCError({ code: "UNAUTHORIZED" });
-        return await scratch.complete({
+        const res = await scratch.complete({
           sessionId: input.sessionId,
           userId: player.id,
         });
+        if (res.isWinner) {
+          await rewards.awardPoints(player.id, rewards.POINTS.scratchWin, "Scratch card win");
+        }
+        return res;
       }),
 
     myHistory: publicProcedure
@@ -1151,6 +1164,29 @@ export const appRouter = router({
       .mutation(async ({ input, ctx }) => {
         if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
         return await scratchOps.runSimulation(input.campaignId, input.runs);
+      }),
+  }),
+
+  // Rewards wallet + referrals
+  rewards: router({
+    getWallet: publicProcedure
+      .input(z.object({ initData: z.string().optional() }))
+      .query(async ({ input, ctx }) => {
+        const player = ctx.user ?? (await resolveTelegramUser(input.initData));
+        return await rewards.getWallet(player?.id ?? null);
+      }),
+
+    claimReferral: publicProcedure
+      .input(
+        z.object({
+          referrerId: z.number().int().positive(),
+          initData: z.string().optional(),
+        })
+      )
+      .mutation(async ({ input, ctx }) => {
+        const player = ctx.user ?? (await resolveTelegramUser(input.initData));
+        if (!player?.id) return { linked: false };
+        return await rewards.claimReferral(player.id, input.referrerId);
       }),
   }),
 

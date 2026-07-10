@@ -61,6 +61,8 @@ function adminUser(): User {
     lastWalkDate: null,
     blocked: false,
     blockReason: null,
+    points: 0,
+    referredBy: null,
     createdAt: now,
     updatedAt: now,
     lastSignedIn: now,

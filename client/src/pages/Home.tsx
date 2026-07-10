@@ -6,7 +6,7 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { trpc } from "@/lib/trpc";
 import { useLocation } from "wouter";
 import { POST_LOGIN_REDIRECT_KEY } from "@/const";
-import { getTelegramInitData, isTelegramMiniApp } from "@/lib/telegram";
+import { getTelegramInitData, isTelegramMiniApp, getStartParam } from "@/lib/telegram";
 import { GAME_THEMES, GRID_SIZE_OPTIONS, GRID_SIZES } from "@shared/gameConfig";
 import { BRAND } from "@shared/brand";
 import { KhmerIcon } from "@/lib/khmerIcons";
@@ -20,6 +20,7 @@ import {
   Ticket,
   LayoutGrid,
   Gamepad2,
+  Coins,
 } from "lucide-react";
 import type { ReactNode } from "react";
 
@@ -59,6 +60,8 @@ export default function Home() {
   const initData = getTelegramInitData();
   const { data: dailyChallenge } = trpc.daily.getChallenge.useQuery();
   const { data: dailyStatus } = trpc.daily.getMyStatus.useQuery({ initData });
+  const { data: wallet } = trpc.rewards.getWallet.useQuery({ initData });
+  const claimReferral = trpc.rewards.claimReferral.useMutation();
   const [isStartingDaily, setIsStartingDaily] = useState(false);
 
   const handlePlayDaily = async () => {
@@ -98,6 +101,13 @@ export default function Home() {
     localStorage.removeItem(POST_LOGIN_REDIRECT_KEY);
     setLocation(redirectPath);
   }, [setLocation, user]);
+
+  // Referral: if opened via an invite link (?startapp=ref<id>), link + reward.
+  useEffect(() => {
+    const m = getStartParam()?.match(/^ref(\d+)$/);
+    if (m) claimReferral.mutate({ referrerId: parseInt(m[1], 10), initData });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const memoryEnabled = isGameEnabled("memory");
   const otherGames = (gamesList ?? []).filter(
@@ -139,6 +149,25 @@ export default function Home() {
           <h2 className="text-xl font-bold text-gray-900">Pick a game</h2>
           <p className="text-sm text-gray-500">Tap to play — no sign-up needed.</p>
         </div>
+
+        {/* Rewards wallet */}
+        <button
+          onClick={() => setLocation("/wallet")}
+          className="w-full flex items-center justify-between gap-3 rounded-xl bg-white border border-purple-100 p-4 hover:shadow-md transition-shadow"
+        >
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-amber-400 to-amber-500 flex items-center justify-center">
+              <Coins className="w-5 h-5 text-white" />
+            </div>
+            <div className="text-left">
+              <p className="font-bold text-gray-900 tabular-nums">
+                {(wallet?.points ?? 0).toLocaleString()} points
+              </p>
+              <p className="text-xs text-gray-500">Earn as you play · invite friends for +200</p>
+            </div>
+          </div>
+          <ChevronRight className="w-5 h-5 text-gray-400" />
+        </button>
 
         {/* Daily challenge (memory) */}
         {dailyChallenge && memoryEnabled && (

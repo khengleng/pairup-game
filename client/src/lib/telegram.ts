@@ -15,7 +15,10 @@ type TelegramWebApp = {
   openTelegramLink?: (url: string) => void;
   colorScheme?: "light" | "dark";
   initData?: string;
-  initDataUnsafe?: { user?: { id: number; first_name?: string; username?: string } };
+  initDataUnsafe?: {
+    user?: { id: number; first_name?: string; username?: string };
+    start_param?: string;
+  };
 };
 
 function getWebApp(): TelegramWebApp | undefined {
@@ -35,6 +38,12 @@ export function isTelegramMiniApp(): boolean {
 export function getTelegramInitData(): string | undefined {
   const data = getWebApp()?.initData;
   return data && data.length > 0 ? data : undefined;
+}
+
+/** Deep-link start param (e.g. "ref123" from a referral link). */
+export function getStartParam(): string | undefined {
+  const p = getWebApp()?.initDataUnsafe?.start_param;
+  return p && p.length > 0 ? p : undefined;
 }
 
 /**

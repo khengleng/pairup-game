@@ -39,6 +39,10 @@ export const users = mysqlTable("users", {
   /** Fraud control: a blocked player can't play for prizes. */
   blocked: boolean("blocked").default(false).notNull(),
   blockReason: varchar("blockReason", { length: 255 }),
+  /** Rewards wallet: lifetime points balance across games. */
+  points: int("points").default(0).notNull(),
+  /** Referral: the user who invited this player (set once, on first play). */
+  referredBy: int("referredBy"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
   lastSignedIn: timestamp("lastSignedIn").defaultNow().notNull(),
@@ -472,3 +476,24 @@ export const termsAcceptances = mysqlTable("termsAcceptances", {
 
 export type TermsAcceptance = typeof termsAcceptances.$inferSelect;
 export type InsertTermsAcceptance = typeof termsAcceptances.$inferInsert;
+
+/** Append-only ledger of every points change, for the wallet activity feed. */
+export const pointsLedger = mysqlTable("pointsLedger", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull(),
+  delta: int("delta").notNull(),
+  reason: varchar("reason", { length: 120 }).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export type PointsLedger = typeof pointsLedger.$inferSelect;
+
+/** Referral edges — one row per referred player (unique). */
+export const referrals = mysqlTable("referrals", {
+  id: int("id").autoincrement().primaryKey(),
+  referrerId: int("referrerId").notNull(),
+  referredId: int("referredId").notNull().unique(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export type Referral = typeof referrals.$inferSelect;
