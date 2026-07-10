@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useLocation } from "wouter";
+import { useLocation, Redirect } from "wouter";
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { Button } from "@/components/ui/button";
@@ -18,7 +18,7 @@ function money(cents: number) {
 
 export default function AdminScratch() {
   const [, setLocation] = useLocation();
-  const { user } = useAuth();
+  const { user, loading } = useAuth();
   const utils = trpc.useUtils();
   const isAdmin = user?.role === "admin";
 
@@ -98,6 +98,11 @@ export default function AdminScratch() {
       expiresAt: expiresAt ? new Date(expiresAt) : undefined,
     });
   };
+
+  // Not signed in → go to admin login (which returns here after sign-in).
+  if (!loading && !user) {
+    return <Redirect to="/admin/login" />;
+  }
 
   if (user && !isAdmin) {
     return (

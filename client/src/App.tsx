@@ -4,6 +4,7 @@ import NotFound from "@/pages/NotFound";
 import { Route, Switch, Redirect } from "wouter";
 import ErrorBoundary from "./components/ErrorBoundary";
 import { ThemeProvider } from "./contexts/ThemeContext";
+import { isScratchAdminHost } from "./lib/host";
 import Home from "./pages/Home";
 import Game from "./pages/Game";
 import Completion from "./pages/Completion";
@@ -18,21 +19,12 @@ import AdminDashboard from "./pages/AdminDashboard";
 import AdminScratch from "./pages/AdminScratch";
 import AdminLogin from "./pages/AdminLogin";
 
-// Hostnames whose landing page should open the Scratch & Win game directly
-// instead of the general games hub (player-facing branded entry).
-const SCRATCH_ENTRY_HOSTS = new Set(["pickme.cambobia.com"]);
-function isScratchEntryHost(): boolean {
-  return (
-    typeof window !== "undefined" &&
-    SCRATCH_ENTRY_HOSTS.has(window.location.hostname)
-  );
-}
-
 function Router() {
   return (
     <Switch>
       <Route path={"/"}>
-        {isScratchEntryHost() ? <Redirect to="/scratch" /> : <Home />}
+        {/* The scratch-admin domain opens the admin portal, not the games hub. */}
+        {isScratchAdminHost() ? <Redirect to="/admin/scratch" /> : <Home />}
       </Route>
       <Route path={"/game/:gameId"} component={Game} />
       <Route path={"/completion/:gameId"} component={Completion} />
