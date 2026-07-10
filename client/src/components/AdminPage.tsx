@@ -4,7 +4,8 @@ import { useAuth } from "@/_core/hooks/useAuth";
 import { Card } from "@/components/ui/card";
 import AdminNav from "@/components/AdminNav";
 
-type AdminSection = "overview" | "scratch" | "claims" | "fraud" | "reports";
+type AdminSection =
+  | "overview" | "scratch" | "claims" | "fraud" | "reports" | "team" | "approvals";
 
 /** Auth-guarded admin layout with the shared nav. */
 export default function AdminPage({

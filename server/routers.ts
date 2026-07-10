@@ -26,10 +26,22 @@ import {
 import {
   ADMIN_COOKIE,
   ADMIN_SESSION_MAX_AGE_MS,
+  BOOTSTRAP_ADMIN_ID,
   createAdminSessionToken,
   isAdminPasswordConfigured,
   verifyAdminPassword,
 } from "./adminAuth";
+import * as adminUsers from "./adminUsers";
+import * as approvals from "./approvals";
+import { requirePermission, can, effectiveRole } from "./perm";
+import {
+  ROLE_PERMISSIONS,
+  isAdminRole,
+  ADMIN_ROLES,
+  hasPermission,
+  APPROVAL_PERMISSION,
+  type AdminRole,
+} from "@shared/rbac";
 import { getBotShareUrl } from "./telegram";
 import { validateWalkSteps, getDailyStepGoal } from "./walkLogic";
 import {
@@ -63,6 +75,25 @@ function getClientIp(req: { headers: Record<string, unknown>; socket?: { remoteA
   }
   return req.socket?.remoteAddress ?? "unknown";
 }
+
+/** Actor descriptor for service/audit calls from the current admin session. */
+function adminActor(ctx: {
+  adminUserId: number | null;
+  adminRole: AdminRole | null;
+  adminName: string | null;
+  user: { role: string } | null;
+  req: { headers: Record<string, unknown>; socket?: { remoteAddress?: string } };
+}) {
+  return {
+    id: ctx.adminUserId ?? BOOTSTRAP_ADMIN_ID,
+    role: (effectiveRole(ctx) ?? "admin") as string,
+    name: ctx.adminName ?? "Admin",
+    ip: getClientIp(ctx.req),
+  };
+}
+
+/** High-value prize threshold (cents) that triggers budget maker-checker. */
+const HIGH_VALUE_CENTS = 5000;
 
 const themeSchema = z.string().trim().min(1).max(255);
 const gridSizeSchema = z.custom<GridSizeValue>(
@@ -243,9 +274,15 @@ export const appRouter = router({
       passwordEnabled: isAdminPasswordConfigured(),
     })),
 
-    // Standalone admin login (no Manus OAuth needed).
+    // Admin login. With just a password → Super Admin bootstrap; with a
+    // username → an individual admin account.
     adminLogin: publicProcedure
-      .input(z.object({ password: z.string().min(1).max(256) }))
+      .input(
+        z.object({
+          username: z.string().max(64).optional(),
+          password: z.string().min(1).max(256),
+        })
+      )
       .mutation(async ({ input, ctx }) => {
         const ip = getClientIp(ctx.req);
         if (!rateLimit(`adminLogin:${ip}`, 10, 15 * 60_000).allowed) {
@@ -254,20 +291,28 @@ export const appRouter = router({
             message: "Too many attempts. Please try again later.",
           });
         }
-        if (!isAdminPasswordConfigured()) {
-          throw new TRPCError({
-            code: "PRECONDITION_FAILED",
-            message: "Admin password login is not configured (set ADMIN_PASSWORD).",
-          });
-        }
-        if (!verifyAdminPassword(input.password)) {
-          throw new TRPCError({
-            code: "UNAUTHORIZED",
-            message: "Incorrect password.",
-          });
+
+        let session: { adminUserId: number; role: AdminRole };
+        if (input.username && input.username.trim()) {
+          const account = await adminUsers.verifyAdminAccount(input.username, input.password);
+          if (!account) {
+            throw new TRPCError({ code: "UNAUTHORIZED", message: "Invalid username or password." });
+          }
+          session = { adminUserId: account.id, role: account.role };
+        } else {
+          if (!isAdminPasswordConfigured()) {
+            throw new TRPCError({
+              code: "PRECONDITION_FAILED",
+              message: "Admin password login is not configured (set ADMIN_PASSWORD).",
+            });
+          }
+          if (!verifyAdminPassword(input.password)) {
+            throw new TRPCError({ code: "UNAUTHORIZED", message: "Incorrect password." });
+          }
+          session = { adminUserId: BOOTSTRAP_ADMIN_ID, role: "super_admin" };
         }
 
-        const token = await createAdminSessionToken();
+        const token = await createAdminSessionToken(session);
         const cookieOptions = getSessionCookieOptions(ctx.req);
         ctx.res.cookie(ADMIN_COOKIE, token, {
           ...cookieOptions,
@@ -275,6 +320,17 @@ export const appRouter = router({
         });
         return { success: true };
       }),
+
+    // The current admin's role + permissions (drives the admin UI).
+    adminMe: publicProcedure.query(({ ctx }) => {
+      const role = effectiveRole(ctx);
+      return {
+        isAdmin: !!role,
+        role,
+        name: ctx.adminName,
+        permissions: role ? ROLE_PERMISSIONS[role] : [],
+      };
+    }),
 
     adminLogout: publicProcedure.mutation(({ ctx }) => {
       const cookieOptions = getSessionCookieOptions(ctx.req);
@@ -289,18 +345,14 @@ export const appRouter = router({
     }),
 
     getAllThemes: protectedProcedure.query(async ({ ctx }) => {
-      if (ctx.user.role !== "admin") {
-        throw new TRPCError({ code: "FORBIDDEN" });
-      }
+      requirePermission(ctx, "campaigns.view");
       return await getAvailableGameThemes(true);
     }),
 
     createTheme: protectedProcedure
       .input(createThemeSchema)
       .mutation(async ({ input, ctx }) => {
-        if (ctx.user.role !== "admin") {
-          throw new TRPCError({ code: "FORBIDDEN" });
-        }
+        requirePermission(ctx, "campaigns.edit");
 
         const existingTheme = (await getAvailableGameThemes(true)).find(
           theme => theme.name.toLowerCase() === input.name.toLowerCase()
@@ -333,9 +385,7 @@ export const appRouter = router({
         })
       )
       .mutation(async ({ input, ctx }) => {
-        if (ctx.user.role !== "admin") {
-          throw new TRPCError({ code: "FORBIDDEN" });
-        }
+        requirePermission(ctx, "campaigns.edit");
 
         await db.updateStoredGameThemeEnabled(input.themeId, input.enabled);
         return { success: true };
@@ -349,9 +399,7 @@ export const appRouter = router({
         })
       )
       .mutation(async ({ input, ctx }) => {
-        if (ctx.user.role !== "admin") {
-          throw new TRPCError({ code: "FORBIDDEN" });
-        }
+        requirePermission(ctx, "campaigns.edit");
 
         await db.updateStoredGameThemeOrder(input.themeId, input.sortOrder);
         return { success: true };
@@ -808,9 +856,7 @@ export const appRouter = router({
     setEnabled: protectedProcedure
       .input(z.object({ id: z.string(), enabled: z.boolean() }))
       .mutation(async ({ input, ctx }) => {
-        if (ctx.user.role !== "admin") {
-          throw new TRPCError({ code: "FORBIDDEN" });
-        }
+        requirePermission(ctx, "campaigns.edit");
         if (!isGameId(input.id)) {
           throw new TRPCError({ code: "BAD_REQUEST", message: "Unknown game." });
         }
@@ -938,14 +984,14 @@ export const appRouter = router({
 
     // --- Admin ---
     adminListCampaigns: protectedProcedure.query(async ({ ctx }) => {
-      if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+      requirePermission(ctx, "campaigns.view");
       return await scratch.listCampaignsAdmin();
     }),
 
     adminGetCampaign: protectedProcedure
       .input(z.object({ id: z.number().int().positive() }))
       .query(async ({ input, ctx }) => {
-        if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+        requirePermission(ctx, "campaigns.view");
         return await scratch.getCampaignAdmin(input.id);
       }),
 
@@ -974,7 +1020,7 @@ export const appRouter = router({
         })
       )
       .mutation(async ({ input, ctx }) => {
-        if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+        requirePermission(ctx, "campaigns.create");
         return await scratch.createCampaign(input, {
           id: ctx.user.id,
           role: ctx.user.role,
@@ -990,12 +1036,28 @@ export const appRouter = router({
         })
       )
       .mutation(async ({ input, ctx }) => {
-        if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
-        return await scratch.setCampaignStatus(input.id, input.status, {
-          id: ctx.user.id,
-          role: ctx.user.role,
-          ip: getClientIp(ctx.req),
-        });
+        requirePermission(ctx, "campaigns.view");
+        const actor = adminActor(ctx);
+        // Activating a campaign is maker-checker: publishers do it directly,
+        // editors raise an approval request.
+        if (input.status === "active") {
+          if (can(ctx, "campaigns.publish")) {
+            return await scratch.setCampaignStatus(input.id, "active", actor);
+          }
+          requirePermission(ctx, "campaigns.edit");
+          return await approvals.createApproval(
+            {
+              action: "campaign.publish",
+              entity: "scratchCampaign",
+              entityId: String(input.id),
+              payload: { campaignId: input.id },
+              summary: `Activate campaign #${input.id}`,
+            },
+            actor
+          );
+        }
+        requirePermission(ctx, "campaigns.edit");
+        return await scratch.setCampaignStatus(input.id, input.status, actor);
       }),
 
     adminCreatePrizeTier: protectedProcedure
@@ -1013,12 +1075,23 @@ export const appRouter = router({
         })
       )
       .mutation(async ({ input, ctx }) => {
-        if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
-        return await scratch.createPrizeTier(input, {
-          id: ctx.user.id,
-          role: ctx.user.role,
-          ip: getClientIp(ctx.req),
-        });
+        requirePermission(ctx, "prizes.manage");
+        const actor = adminActor(ctx);
+        // Adding a high-value prize raises liability → maker-checker.
+        const highValue = (input.valueCents ?? 0) >= HIGH_VALUE_CENTS;
+        if (highValue && !can(ctx, "campaigns.budget")) {
+          return await approvals.createApproval(
+            {
+              action: "campaign.budget",
+              entity: "scratchPrizeTier",
+              entityId: String(input.campaignId),
+              payload: { tier: input },
+              summary: `Add ${input.valueLabel} prize (${input.totalQty}×) to campaign #${input.campaignId}`,
+            },
+            actor
+          );
+        }
+        return await scratch.createPrizeTier(input, actor);
       }),
 
     adminAddVouchers: protectedProcedure
@@ -1029,7 +1102,7 @@ export const appRouter = router({
         })
       )
       .mutation(async ({ input, ctx }) => {
-        if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+        requirePermission(ctx, "prizes.manage");
         return await scratch.addVoucherCodes(input.prizeTierId, input.codes, {
           id: ctx.user.id,
           role: ctx.user.role,
@@ -1055,19 +1128,31 @@ export const appRouter = router({
         })
       )
       .mutation(async ({ input, ctx }) => {
-        if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+        requirePermission(ctx, "campaigns.edit");
+        const actor = adminActor(ctx);
         const { id, ...patch } = input;
-        return await scratch.updateCampaign(id, patch, {
-          id: ctx.user.id,
-          role: ctx.user.role,
-          ip: getClientIp(ctx.req),
-        });
+        // Changing the win probability is maker-checker.
+        if (patch.winProbabilityBps !== undefined && !can(ctx, "campaigns.probability")) {
+          const { winProbabilityBps, ...rest } = patch;
+          if (Object.keys(rest).length > 0) await scratch.updateCampaign(id, rest, actor);
+          return await approvals.createApproval(
+            {
+              action: "campaign.probability",
+              entity: "scratchCampaign",
+              entityId: String(id),
+              payload: { campaignId: id, winProbabilityBps },
+              summary: `Set win chance to ${(winProbabilityBps! / 100).toFixed(1)}% on campaign #${id}`,
+            },
+            actor
+          );
+        }
+        return await scratch.updateCampaign(id, patch, actor);
       }),
 
     adminDeleteCampaign: protectedProcedure
       .input(z.object({ id: z.number().int().positive() }))
       .mutation(async ({ input, ctx }) => {
-        if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+        requirePermission(ctx, "campaigns.edit");
         return await scratch.deleteCampaign(input.id, {
           id: ctx.user.id,
           role: ctx.user.role,
@@ -1078,7 +1163,7 @@ export const appRouter = router({
     adminDeletePrizeTier: protectedProcedure
       .input(z.object({ id: z.number().int().positive() }))
       .mutation(async ({ input, ctx }) => {
-        if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+        requirePermission(ctx, "prizes.manage");
         return await scratch.deletePrizeTier(input.id, {
           id: ctx.user.id,
           role: ctx.user.role,
@@ -1087,7 +1172,7 @@ export const appRouter = router({
       }),
 
     adminAuditLog: protectedProcedure.query(async ({ ctx }) => {
-      if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+      requirePermission(ctx, "audit.view");
       return await scratch.listAudit(100);
     }),
 
@@ -1102,7 +1187,7 @@ export const appRouter = router({
         })
       )
       .query(async ({ input, ctx }) => {
-        if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+        requirePermission(ctx, "claims.view");
         return await scratchOps.listClaims(input);
       }),
 
@@ -1115,7 +1200,7 @@ export const appRouter = router({
         })
       )
       .mutation(async ({ input, ctx }) => {
-        if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+        requirePermission(ctx, "claims.manage");
         return await scratchOps.updateClaimStatus(input.id, input.status, input.reason, {
           id: ctx.user.id,
           role: ctx.user.role,
@@ -1124,12 +1209,12 @@ export const appRouter = router({
       }),
 
     adminFraudSignals: protectedProcedure.query(async ({ ctx }) => {
-      if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+      requirePermission(ctx, "fraud.view");
       return await scratchOps.getFraudSignals();
     }),
 
     adminBlockedUsers: protectedProcedure.query(async ({ ctx }) => {
-      if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+      requirePermission(ctx, "fraud.view");
       return await scratchOps.listBlockedUsers();
     }),
 
@@ -1142,7 +1227,7 @@ export const appRouter = router({
         })
       )
       .mutation(async ({ input, ctx }) => {
-        if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+        requirePermission(ctx, "fraud.block");
         return await scratchOps.setUserBlocked(input.userId, input.blocked, input.reason, {
           id: ctx.user.id,
           role: ctx.user.role,
@@ -1151,7 +1236,7 @@ export const appRouter = router({
       }),
 
     adminReports: protectedProcedure.query(async ({ ctx }) => {
-      if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+      requirePermission(ctx, "reports.view");
       return await scratchOps.getCampaignReports();
     }),
 
@@ -1163,7 +1248,7 @@ export const appRouter = router({
         })
       )
       .mutation(async ({ input, ctx }) => {
-        if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+        requirePermission(ctx, "campaigns.view");
         return await scratchOps.runSimulation(input.campaignId, input.runs);
       }),
   }),
@@ -1194,9 +1279,73 @@ export const appRouter = router({
   // Admin analytics
   analytics: router({
     getOverview: protectedProcedure.query(async ({ ctx }) => {
-      if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+      requirePermission(ctx, "analytics.view");
       return await analytics.getOverview();
     }),
+  }),
+
+  // Admin team management (RBAC accounts)
+  adminUsers: router({
+    list: protectedProcedure.query(async ({ ctx }) => {
+      requirePermission(ctx, "team.manage");
+      return await adminUsers.listAdminUsers();
+    }),
+    create: protectedProcedure
+      .input(
+        z.object({
+          username: z.string().trim().min(3).max(64),
+          password: z.string().min(8).max(128),
+          role: z.string(),
+        })
+      )
+      .mutation(async ({ input, ctx }) => {
+        requirePermission(ctx, "team.manage");
+        if (!isAdminRole(input.role)) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Unknown role." });
+        }
+        return await adminUsers.createAdminUser(
+          { username: input.username, password: input.password, role: input.role },
+          adminActor(ctx).id
+        );
+      }),
+    setActive: protectedProcedure
+      .input(z.object({ id: z.number().int().positive(), active: z.boolean() }))
+      .mutation(async ({ input, ctx }) => {
+        requirePermission(ctx, "team.manage");
+        return await adminUsers.setAdminUserActive(input.id, input.active);
+      }),
+    resetPassword: protectedProcedure
+      .input(z.object({ id: z.number().int().positive(), password: z.string().min(8).max(128) }))
+      .mutation(async ({ input, ctx }) => {
+        requirePermission(ctx, "team.manage");
+        return await adminUsers.resetAdminPassword(input.id, input.password);
+      }),
+  }),
+
+  // Maker-checker approvals
+  approvals: router({
+    list: protectedProcedure
+      .input(
+        z.object({
+          status: z.enum(["pending", "approved", "rejected", "cancelled"]).optional(),
+        })
+      )
+      .query(async ({ input, ctx }) => {
+        requirePermission(ctx, "approvals.review");
+        return await approvals.listApprovals(input.status);
+      }),
+    approve: protectedProcedure
+      .input(z.object({ id: z.number().int().positive() }))
+      .mutation(async ({ input, ctx }) => {
+        requirePermission(ctx, "approvals.review");
+        return await approvals.approveRequest(input.id, adminActor(ctx));
+      }),
+    reject: protectedProcedure
+      .input(z.object({ id: z.number().int().positive(), reason: z.string().max(500).optional() }))
+      .mutation(async ({ input, ctx }) => {
+        requirePermission(ctx, "approvals.review");
+        return await approvals.rejectRequest(input.id, input.reason, adminActor(ctx));
+      }),
   }),
 
   // Lead procedures
@@ -1387,9 +1536,7 @@ export const appRouter = router({
 
     getAll: protectedProcedure.query(async ({ ctx }) => {
       // Only allow owner to view all leads
-      if (ctx.user.role !== "admin") {
-        throw new TRPCError({ code: "FORBIDDEN" });
-      }
+      requirePermission(ctx, "reports.view");
       return await db.getAllLeads();
     }),
   }),

@@ -15,6 +15,7 @@ export default function AdminLogin() {
   const { user, loading } = useAuth();
   const utils = trpc.useUtils();
   const isSetupLogin = location === "/setup";
+  const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
 
   const loginMutation = trpc.auth.adminLogin.useMutation();
@@ -32,7 +33,10 @@ export default function AdminLogin() {
       return;
     }
     try {
-      await loginMutation.mutateAsync({ password });
+      await loginMutation.mutateAsync({
+        username: username.trim() || undefined,
+        password,
+      });
       // Refresh auth state so the context picks up the admin session cookie.
       await utils.auth.me.invalidate();
       toast.success("Signed in");
@@ -56,8 +60,8 @@ export default function AdminLogin() {
               {isSetupLogin ? "Game Setup Login" : "Admin Login"}
             </h1>
             <p className="text-sm text-gray-600 mt-2">
-              Enter the admin password to add themes, arrange games, and manage
-              {BRAND}.
+              Sign in to manage {BRAND}. Team members use their username; leave
+              it blank for the master password.
             </p>
           </div>
         </div>
@@ -70,7 +74,17 @@ export default function AdminLogin() {
 
         <form onSubmit={handleLogin} className="space-y-4">
           <div>
-            <Label htmlFor="password">Admin Password</Label>
+            <Label htmlFor="username">Username (optional)</Label>
+            <Input
+              id="username"
+              autoComplete="username"
+              placeholder="leave blank for master password"
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+            />
+          </div>
+          <div>
+            <Label htmlFor="password">Password</Label>
             <Input
               id="password"
               type="password"

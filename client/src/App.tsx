@@ -20,6 +20,8 @@ import AdminScratch from "./pages/AdminScratch";
 import AdminClaims from "./pages/AdminClaims";
 import AdminFraud from "./pages/AdminFraud";
 import AdminReports from "./pages/AdminReports";
+import AdminTeam from "./pages/AdminTeam";
+import AdminApprovals from "./pages/AdminApprovals";
 import AdminLogin from "./pages/AdminLogin";
 
 function Router() {
@@ -45,6 +47,8 @@ function Router() {
       <Route path={"/admin/claims"} component={AdminClaims} />
       <Route path={"/admin/fraud"} component={AdminFraud} />
       <Route path={"/admin/reports"} component={AdminReports} />
+      <Route path={"/admin/team"} component={AdminTeam} />
+      <Route path={"/admin/approvals"} component={AdminApprovals} />
       <Route path={"/404"} component={NotFound} />
       {/* Final fallback route */}
       <Route component={NotFound} />

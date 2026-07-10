@@ -1,14 +1,15 @@
 import { SignJWT, jwtVerify } from "jose";
-import { timingSafeEqual } from "crypto";
+import { timingSafeEqual, scryptSync, randomBytes } from "crypto";
 import type { User } from "../drizzle/schema";
+import type { AdminRole } from "@shared/rbac";
 
 /**
- * Standalone, password-based admin login for deployments without Manus OAuth.
+ * Admin authentication + RBAC sessions.
  *
- * Set ADMIN_PASSWORD (and the existing JWT_SECRET) in the environment. Signing
- * in mints a short-lived HS256 session cookie; the tRPC context turns a valid
- * cookie into a synthetic admin `User`, so the existing `role === "admin"`
- * checks keep working unchanged.
+ * The shared ADMIN_PASSWORD logs you in as a Super Admin (a "bootstrap"
+ * account, id 0). Super Admins then create individual admin accounts with
+ * specific roles; those log in with username + password. A session cookie
+ * (HS256 JWT) carries the admin's id + granular role.
  */
 
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD ?? "";
@@ -16,6 +17,9 @@ const JWT_SECRET = process.env.JWT_SECRET ?? "";
 
 export const ADMIN_COOKIE = "pairup_admin_session";
 export const ADMIN_SESSION_MAX_AGE_MS = 12 * 60 * 60 * 1000; // 12 hours
+
+/** The synthetic id for the ADMIN_PASSWORD bootstrap Super Admin. */
+export const BOOTSTRAP_ADMIN_ID = 0;
 
 export function isAdminPasswordConfigured(): boolean {
   return ADMIN_PASSWORD.length > 0 && JWT_SECRET.length > 0;
@@ -25,7 +29,7 @@ function secretKey(): Uint8Array {
   return new TextEncoder().encode(JWT_SECRET);
 }
 
-/** Constant-time password check. */
+/** Constant-time check of the shared bootstrap password. */
 export function verifyAdminPassword(password: string): boolean {
   if (!ADMIN_PASSWORD) return false;
   const a = Buffer.from(password);
@@ -34,22 +38,61 @@ export function verifyAdminPassword(password: string): boolean {
   return timingSafeEqual(a, b);
 }
 
-export async function createAdminSessionToken(): Promise<string> {
+// --- Per-account password hashing (scrypt) ---
+
+export function hashPassword(password: string): string {
+  const salt = randomBytes(16).toString("hex");
+  const hash = scryptSync(password, salt, 64).toString("hex");
+  return `${salt}:${hash}`;
+}
+
+export function verifyPassword(password: string, stored: string): boolean {
+  const [salt, hash] = stored.split(":");
+  if (!salt || !hash) return false;
+  const computed = scryptSync(password, salt, 64);
+  const expected = Buffer.from(hash, "hex");
+  return computed.length === expected.length && timingSafeEqual(computed, expected);
+}
+
+// --- Sessions ---
+
+export type AdminSession = { adminUserId: number; role: AdminRole };
+
+export async function createAdminSessionToken(session: AdminSession): Promise<string> {
   const expSeconds = Math.floor((Date.now() + ADMIN_SESSION_MAX_AGE_MS) / 1000);
-  return new SignJWT({ admin: true })
+  return new SignJWT({ admin: true, uid: session.adminUserId, role: session.role })
     .setProtectedHeader({ alg: "HS256", typ: "JWT" })
     .setIssuedAt()
     .setExpirationTime(expSeconds)
     .sign(secretKey());
 }
 
-/** Synthetic admin user backing a valid password session. */
-function adminUser(): User {
+/** Resolve a token into an admin session, or null. Legacy tokens (no role) map
+ * to the Super Admin bootstrap so existing sessions keep working. */
+export async function getAdminSession(
+  token: string | undefined | null
+): Promise<AdminSession | null> {
+  if (!token || !JWT_SECRET) return null;
+  try {
+    const { payload } = await jwtVerify(token, secretKey(), { algorithms: ["HS256"] });
+    if (payload.admin !== true) return null;
+    const role = (payload.role as AdminRole) ?? "super_admin";
+    const adminUserId =
+      typeof payload.uid === "number" ? payload.uid : BOOTSTRAP_ADMIN_ID;
+    return { adminUserId, role };
+  } catch {
+    return null;
+  }
+}
+
+/** Synthetic coarse `User` (role "admin") backing an admin session, so the
+ * existing user-shaped context keeps working. Granular role travels separately. */
+export function adminUser(id: number, name: string): User {
   const now = new Date();
   return {
-    id: -100,
-    openId: "admin:password",
-    name: "Admin",
+    id: id === BOOTSTRAP_ADMIN_ID ? -100 : -100 - id,
+    openId: `admin:${id}`,
+    name,
     email: null,
     loginMethod: "password",
     role: "admin",
@@ -67,19 +110,4 @@ function adminUser(): User {
     updatedAt: now,
     lastSignedIn: now,
   };
-}
-
-/** Resolve a session token into an admin User, or null if invalid/expired. */
-export async function getAdminUserFromToken(
-  token: string | undefined | null
-): Promise<User | null> {
-  if (!token || !JWT_SECRET) return null;
-  try {
-    const { payload } = await jwtVerify(token, secretKey(), {
-      algorithms: ["HS256"],
-    });
-    return payload.admin === true ? adminUser() : null;
-  } catch {
-    return null;
-  }
 }

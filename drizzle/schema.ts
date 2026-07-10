@@ -497,3 +497,52 @@ export const referrals = mysqlTable("referrals", {
 });
 
 export type Referral = typeof referrals.$inferSelect;
+
+/** Individual admin accounts with an RBAC role. The shared ADMIN_PASSWORD acts
+ * as a Super Admin bootstrap separate from these rows. */
+export const adminUsers = mysqlTable("adminUsers", {
+  id: int("id").autoincrement().primaryKey(),
+  username: varchar("username", { length: 64 }).notNull().unique(),
+  passwordHash: varchar("passwordHash", { length: 255 }).notNull(),
+  role: mysqlEnum("role", [
+    "super_admin",
+    "campaign_manager",
+    "approver",
+    "operator",
+    "prize_manager",
+    "compliance_officer",
+    "fraud_analyst",
+    "auditor",
+  ]).notNull(),
+  active: boolean("active").default(true).notNull(),
+  createdBy: int("createdBy"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  lastLoginAt: timestamp("lastLoginAt"),
+});
+
+export type AdminUser = typeof adminUsers.$inferSelect;
+export type InsertAdminUser = typeof adminUsers.$inferInsert;
+
+/** Maker-checker approval requests for high-risk actions. */
+export const approvalRequests = mysqlTable("approvalRequests", {
+  id: int("id").autoincrement().primaryKey(),
+  action: varchar("action", { length: 64 }).notNull(),
+  entity: varchar("entity", { length: 64 }).notNull(),
+  entityId: varchar("entityId", { length: 64 }),
+  /** Action-specific payload applied on approval. */
+  payload: json("payload").notNull(),
+  summary: varchar("summary", { length: 512 }),
+  status: mysqlEnum("status", ["pending", "approved", "rejected", "cancelled"])
+    .default("pending")
+    .notNull(),
+  requestedBy: int("requestedBy"),
+  requestedByName: varchar("requestedByName", { length: 120 }),
+  reviewedBy: int("reviewedBy"),
+  reviewedByName: varchar("reviewedByName", { length: 120 }),
+  reason: text("reason"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  resolvedAt: timestamp("resolvedAt"),
+});
+
+export type ApprovalRequest = typeof approvalRequests.$inferSelect;
+export type InsertApprovalRequest = typeof approvalRequests.$inferInsert;
