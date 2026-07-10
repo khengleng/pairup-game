@@ -7,7 +7,6 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { isScratchAdminHost } from "@/lib/host";
 import { toast } from "sonner";
 
 export default function AdminLogin() {
@@ -17,16 +16,13 @@ export default function AdminLogin() {
   const isSetupLogin = location === "/setup";
   const [password, setPassword] = useState("");
 
-  // On the scratch-admin domain, land admins straight in the scratch portal.
-  const postLoginPath = isScratchAdminHost() ? "/admin/scratch" : "/admin";
-
   const loginMutation = trpc.auth.adminLogin.useMutation();
 
   useEffect(() => {
     if (user?.role === "admin") {
-      setLocation(postLoginPath);
+      setLocation("/admin");
     }
-  }, [setLocation, user, postLoginPath]);
+  }, [setLocation, user]);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -39,7 +35,7 @@ export default function AdminLogin() {
       // Refresh auth state so the context picks up the admin session cookie.
       await utils.auth.me.invalidate();
       toast.success("Signed in");
-      setLocation(postLoginPath);
+      setLocation("/admin");
     } catch (error) {
       toast.error(
         error instanceof Error ? error.message : "Sign in failed"

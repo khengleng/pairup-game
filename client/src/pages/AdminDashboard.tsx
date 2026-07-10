@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
+import AdminNav from "@/components/AdminNav";
 import { toast } from "sonner";
 import { ArrowDown, ArrowUp, Lock, Power, PowerOff, Gamepad2 } from "lucide-react";
 
@@ -202,30 +203,7 @@ export default function AdminDashboard() {
   return (
     <div className="min-h-screen pairup-gradient py-8">
       <div className="container">
-        {/* Header */}
-        <div className="flex items-center justify-between mb-8">
-          <div className="flex items-center gap-2">
-            <div className="w-10 h-10 bg-gradient-to-br from-purple-500 to-green-400 rounded-lg flex items-center justify-center">
-              <span className="text-white font-bold">P</span>
-            </div>
-            <h1 className="text-2xl font-bold text-gray-900">PairUp Admin</h1>
-          </div>
-          <div className="flex items-center gap-2">
-            <Button
-              onClick={() => setLocation("/admin/scratch")}
-              className="btn-primary"
-            >
-              Scratch Campaigns
-            </Button>
-            <Button
-              variant="outline"
-              onClick={() => setLocation("/")}
-              className="btn-outline"
-            >
-              Back to Home
-            </Button>
-          </div>
-        </div>
+        <AdminNav active="overview" />
 
         {/* Game availability — what the Telegram mini app presents */}
         <Card className="p-6 mb-8">

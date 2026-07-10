@@ -4,7 +4,7 @@ import NotFound from "@/pages/NotFound";
 import { Route, Switch, Redirect } from "wouter";
 import ErrorBoundary from "./components/ErrorBoundary";
 import { ThemeProvider } from "./contexts/ThemeContext";
-import { isScratchAdminHost } from "./lib/host";
+import { isAdminHost } from "./lib/host";
 import Home from "./pages/Home";
 import Game from "./pages/Game";
 import Completion from "./pages/Completion";
@@ -23,8 +23,8 @@ function Router() {
   return (
     <Switch>
       <Route path={"/"}>
-        {/* The scratch-admin domain opens the admin portal, not the games hub. */}
-        {isScratchAdminHost() ? <Redirect to="/admin/scratch" /> : <Home />}
+        {/* The admin domain opens the consolidated admin portal, not the hub. */}
+        {isAdminHost() ? <Redirect to="/admin" /> : <Home />}
       </Route>
       <Route path={"/game/:gameId"} component={Game} />
       <Route path={"/completion/:gameId"} component={Completion} />

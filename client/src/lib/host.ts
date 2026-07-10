@@ -3,12 +3,11 @@
  * app rather than the general home hub.
  */
 
-/** Domains that serve as the scratch-game admin portal. */
-export const SCRATCH_ADMIN_HOSTS = new Set(["pickme.cambobia.com"]);
+/** Domains that serve as the consolidated web admin portal for all games. */
+export const ADMIN_HOSTS = new Set(["game.cambobia.com"]);
 
-export function isScratchAdminHost(): boolean {
+export function isAdminHost(): boolean {
   return (
-    typeof window !== "undefined" &&
-    SCRATCH_ADMIN_HOSTS.has(window.location.hostname)
+    typeof window !== "undefined" && ADMIN_HOSTS.has(window.location.hostname)
   );
 }

@@ -1,0 +1,62 @@
+import { useLocation } from "wouter";
+import { trpc } from "@/lib/trpc";
+import { Gamepad2, LogOut } from "lucide-react";
+import { toast } from "sonner";
+
+type AdminSection = "overview" | "scratch";
+
+const TABS: { key: AdminSection; label: string; path: string }[] = [
+  { key: "overview", label: "Overview", path: "/admin" },
+  { key: "scratch", label: "Scratch Campaigns", path: "/admin/scratch" },
+];
+
+/** Shared top bar tying the admin sections into one portal. */
+export default function AdminNav({ active }: { active: AdminSection }) {
+  const [, setLocation] = useLocation();
+  const utils = trpc.useUtils();
+  const logout = trpc.auth.adminLogout.useMutation({
+    onSuccess: async () => {
+      await utils.auth.me.invalidate();
+      toast.success("Signed out");
+      setLocation("/admin/login");
+    },
+  });
+
+  return (
+    <div className="mb-6 rounded-xl bg-white border border-purple-200 shadow-sm">
+      <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
+        <div className="flex items-center gap-2">
+          <div className="w-9 h-9 bg-gradient-to-br from-purple-500 to-green-400 rounded-lg flex items-center justify-center">
+            <Gamepad2 className="w-5 h-5 text-white" />
+          </div>
+          <div className="leading-tight">
+            <p className="font-bold text-gray-900">Cambobia Games Admin</p>
+            <p className="text-xs text-gray-500">Manage every game in one place</p>
+          </div>
+        </div>
+        <button
+          onClick={() => logout.mutate()}
+          className="flex items-center gap-1.5 text-sm font-medium text-gray-600 hover:text-gray-900"
+        >
+          <LogOut className="w-4 h-4" />
+          Sign out
+        </button>
+      </div>
+      <nav className="flex gap-1 px-2 pb-2 overflow-x-auto">
+        {TABS.map(tab => (
+          <button
+            key={tab.key}
+            onClick={() => setLocation(tab.path)}
+            className={`px-4 py-2 rounded-lg text-sm font-semibold whitespace-nowrap transition-colors ${
+              active === tab.key
+                ? "bg-gradient-to-r from-purple-500 to-purple-600 text-white"
+                : "text-gray-600 hover:bg-gray-100"
+            }`}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </nav>
+    </div>
+  );
+}

@@ -7,8 +7,9 @@ import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import AdminNav from "@/components/AdminNav";
 import { toast } from "sonner";
-import { Ticket, ShieldCheck } from "lucide-react";
+import { ShieldCheck } from "lucide-react";
 
 const STATUS_ACTIONS = ["draft", "active", "paused", "ended"] as const;
 
@@ -119,19 +120,10 @@ export default function AdminScratch() {
 
   return (
     <div className="min-h-screen pairup-gradient py-8">
-      <div className="container max-w-5xl space-y-6">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <div className="w-10 h-10 bg-gradient-to-br from-purple-500 to-green-400 rounded-lg flex items-center justify-center">
-              <Ticket className="w-5 h-5 text-white" />
-            </div>
-            <h1 className="text-2xl font-bold text-gray-900">Scratch Campaigns</h1>
-          </div>
-          <Button variant="outline" onClick={() => setLocation("/admin")}>
-            Back to Admin
-          </Button>
-        </div>
+      <div className="container max-w-5xl">
+        <AdminNav active="scratch" />
 
+        <div className="space-y-6">
         <div className="grid lg:grid-cols-[1fr_1.1fr] gap-6">
           {/* Create campaign */}
           <Card className="p-6">
@@ -353,6 +345,7 @@ export default function AdminScratch() {
             </table>
           </div>
         </Card>
+        </div>
       </div>
     </div>
   );
