@@ -44,6 +44,7 @@ import { GAME_CATALOG, isGameId, resolveGameToggles } from "@shared/games";
 import * as scratch from "./scratch/service";
 import * as scratchOps from "./scratch/ops";
 import * as rewards from "./rewards";
+import * as analytics from "./analytics";
 import {
   codeMatches,
   expiryFromNow,
@@ -1188,6 +1189,14 @@ export const appRouter = router({
         if (!player?.id) return { linked: false };
         return await rewards.claimReferral(player.id, input.referrerId);
       }),
+  }),
+
+  // Admin analytics
+  analytics: router({
+    getOverview: protectedProcedure.query(async ({ ctx }) => {
+      if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+      return await analytics.getOverview();
+    }),
   }),
 
   // Lead procedures

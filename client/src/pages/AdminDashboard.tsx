@@ -58,6 +58,10 @@ export default function AdminDashboard() {
     },
   });
 
+  const { data: overview } = trpc.analytics.getOverview.useQuery(undefined, {
+    enabled: user?.role === "admin",
+  });
+
   // Game visibility toggles — controls what the app / Telegram mini app shows.
   const { data: gamesList } = trpc.games.getEnabled.useQuery(undefined, {
     enabled: user?.role === "admin",
@@ -205,6 +209,64 @@ export default function AdminDashboard() {
     <div className="min-h-screen pairup-gradient py-8">
       <div className="container">
         <AdminNav active="overview" />
+
+        {/* Analytics overview */}
+        {overview && (
+          <div className="mb-8 space-y-4">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+              {[
+                ["Players", overview.players.toLocaleString()],
+                ["Active today", overview.activeToday.toLocaleString()],
+                ["Total plays", overview.plays.total.toLocaleString()],
+                ["Referrals", overview.rewards.referrals.toLocaleString()],
+              ].map(([label, val]) => (
+                <Card key={label} className="p-4 text-center">
+                  <div className="text-2xl font-bold text-purple-600 tabular-nums">{val}</div>
+                  <div className="text-xs text-gray-500">{label}</div>
+                </Card>
+              ))}
+            </div>
+
+            <div className="grid md:grid-cols-3 gap-4">
+              <Card className="p-5">
+                <h3 className="text-sm font-semibold text-gray-700 mb-3">Plays by game</h3>
+                <ul className="space-y-1.5 text-sm">
+                  {[
+                    ["Memory", overview.plays.memory],
+                    ["Scratch", overview.plays.scratch],
+                    ["Dice / Klaklok", overview.plays.shake],
+                    ["Walk", overview.plays.walk],
+                  ].map(([label, n]) => (
+                    <li key={label as string} className="flex justify-between">
+                      <span className="text-gray-600">{label}</span>
+                      <span className="font-semibold tabular-nums">{(n as number).toLocaleString()}</span>
+                    </li>
+                  ))}
+                </ul>
+              </Card>
+
+              <Card className="p-5">
+                <h3 className="text-sm font-semibold text-gray-700 mb-3">Scratch economy</h3>
+                <ul className="space-y-1.5 text-sm">
+                  <li className="flex justify-between"><span className="text-gray-600">Winners</span><span className="font-semibold">{overview.scratch.winners.toLocaleString()}</span></li>
+                  <li className="flex justify-between"><span className="text-gray-600">Paid out</span><span className="font-semibold text-green-700">${(overview.scratch.paidCents / 100).toFixed(2)}</span></li>
+                  <li className="flex justify-between"><span className="text-gray-600">Outstanding</span><span className="font-semibold text-amber-700">${(overview.scratch.outstandingCents / 100).toFixed(2)}</span></li>
+                  <li className="flex justify-between"><span className="text-gray-600">Points issued</span><span className="font-semibold">{overview.rewards.pointsIssued.toLocaleString()}</span></li>
+                </ul>
+              </Card>
+
+              <Card className="p-5">
+                <h3 className="text-sm font-semibold text-gray-700 mb-3">Claims</h3>
+                <ul className="space-y-1.5 text-sm">
+                  <li className="flex justify-between"><span className="text-amber-700">Pending</span><span className="font-semibold">{overview.scratch.claims.pending}</span></li>
+                  <li className="flex justify-between"><span className="text-blue-700">Verification</span><span className="font-semibold">{overview.scratch.claims.verification}</span></li>
+                  <li className="flex justify-between"><span className="text-green-700">Fulfilled</span><span className="font-semibold">{overview.scratch.claims.fulfilled}</span></li>
+                  <li className="flex justify-between"><span className="text-gray-500">Leads</span><span className="font-semibold">{overview.leads}</span></li>
+                </ul>
+              </Card>
+            </div>
+          </div>
+        )}
 
         {/* Game availability — what the Telegram mini app presents */}
         <Card className="p-6 mb-8">
