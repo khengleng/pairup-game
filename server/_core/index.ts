@@ -1,4 +1,11 @@
 import "dotenv/config";
+// Ensure the Web Crypto global exists. `jose` (admin JWTs) needs
+// `globalThis.crypto`, which isn't exposed by default on Node 18. Polyfill it
+// from node:crypto so admin login/session work regardless of Node version.
+import { webcrypto } from "node:crypto";
+if (!globalThis.crypto) {
+  (globalThis as unknown as { crypto: Crypto }).crypto = webcrypto as Crypto;
+}
 import express from "express";
 import { createServer } from "http";
 import net from "net";
