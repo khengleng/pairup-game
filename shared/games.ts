@@ -6,7 +6,13 @@
  * home screen, the admin portal, and the server.
  */
 
-export type GameId = "memory" | "photos" | "dice" | "klaklok" | "walk";
+export type GameId =
+  | "memory"
+  | "photos"
+  | "dice"
+  | "klaklok"
+  | "scratch"
+  | "walk";
 
 export type GameCatalogEntry = {
   id: GameId;
@@ -42,6 +48,12 @@ export const GAME_CATALOG: readonly GameCatalogEntry[] = [
     name: "Klaklok",
     description: "Cambodia's tiger–gourd–fish shake game.",
     path: "/klaklok",
+  },
+  {
+    id: "scratch",
+    name: "Scratch & Win",
+    description: "Scratch the card and match to win prizes.",
+    path: "/scratch",
   },
   {
     id: "walk",

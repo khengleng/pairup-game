@@ -64,6 +64,13 @@
       "when": 1783584072817,
       "tag": "0008_daffy_nighthawk",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "5",
+      "when": 1783652017382,
+      "tag": "0009_minor_boom_boom",
+      "breakpoints": true
     }
   ]
 }

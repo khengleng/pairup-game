@@ -12,7 +12,10 @@ import WalkChallenge from "./pages/WalkChallenge";
 import DiceGame from "./pages/DiceGame";
 import Klaklok from "./pages/Klaklok";
 import PhotoMemory from "./pages/PhotoMemory";
+import ScratchList from "./pages/ScratchList";
+import ScratchPlay from "./pages/ScratchPlay";
 import AdminDashboard from "./pages/AdminDashboard";
+import AdminScratch from "./pages/AdminScratch";
 import AdminLogin from "./pages/AdminLogin";
 
 function Router() {
@@ -26,9 +29,12 @@ function Router() {
       <Route path={"/dice"} component={DiceGame} />
       <Route path={"/klaklok"} component={Klaklok} />
       <Route path={"/photos"} component={PhotoMemory} />
+      <Route path={"/scratch"} component={ScratchList} />
+      <Route path={"/scratch/:campaignId"} component={ScratchPlay} />
       <Route path={"/setup"} component={AdminLogin} />
       <Route path={"/admin/login"} component={AdminLogin} />
       <Route path={"/admin"} component={AdminDashboard} />
+      <Route path={"/admin/scratch"} component={AdminScratch} />
       <Route path={"/404"} component={NotFound} />
       {/* Final fallback route */}
       <Route component={NotFound} />

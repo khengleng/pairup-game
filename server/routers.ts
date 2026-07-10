@@ -41,6 +41,7 @@ import {
   isKlaklokStake,
 } from "@shared/shakeLogic";
 import { GAME_CATALOG, isGameId, resolveGameToggles } from "@shared/games";
+import * as scratch from "./scratch/service";
 import {
   codeMatches,
   expiryFromNow,
@@ -805,6 +806,183 @@ export const appRouter = router({
         await db.setGameEnabled(input.id, input.enabled);
         return { success: true };
       }),
+  }),
+
+  // Scratch-card promotional platform (Phase 1). Results are decided + signed
+  // server-side before the player scratches; the browser only reveals them.
+  scratch: router({
+    // --- Player ---
+    listCampaigns: publicProcedure.query(async () => {
+      return await scratch.listActiveCampaigns();
+    }),
+
+    getCampaign: publicProcedure
+      .input(z.object({ id: z.number().int().positive() }))
+      .query(async ({ input }) => {
+        return await scratch.getPublicCampaign(input.id);
+      }),
+
+    start: publicProcedure
+      .input(
+        z.object({
+          campaignId: z.number().int().positive(),
+          initData: z.string().optional(),
+          deviceHash: z.string().max(64).optional(),
+        })
+      )
+      .mutation(async ({ input, ctx }) => {
+        const ip = getClientIp(ctx.req);
+        if (!rateLimit(`scratchStart:${ip}`, 30, 60_000).allowed) {
+          throw new TRPCError({
+            code: "TOO_MANY_REQUESTS",
+            message: "Too many plays. Please slow down.",
+          });
+        }
+        const player = ctx.user ?? (await resolveTelegramUser(input.initData));
+        if (!player?.id) {
+          throw new TRPCError({
+            code: "UNAUTHORIZED",
+            message: "Open inside Telegram (or sign in) to play for prizes.",
+          });
+        }
+        return await scratch.play({
+          campaignId: input.campaignId,
+          userId: player.id,
+          playerName: player.name || undefined,
+          ip,
+          deviceHash: input.deviceHash,
+        });
+      }),
+
+    complete: publicProcedure
+      .input(
+        z.object({
+          sessionId: z.number().int().positive(),
+          initData: z.string().optional(),
+        })
+      )
+      .mutation(async ({ input, ctx }) => {
+        const player = ctx.user ?? (await resolveTelegramUser(input.initData));
+        if (!player?.id) throw new TRPCError({ code: "UNAUTHORIZED" });
+        return await scratch.complete({
+          sessionId: input.sessionId,
+          userId: player.id,
+        });
+      }),
+
+    myHistory: publicProcedure
+      .input(z.object({ initData: z.string().optional() }))
+      .query(async ({ input, ctx }) => {
+        const player = ctx.user ?? (await resolveTelegramUser(input.initData));
+        if (!player?.id) return { identified: false, plays: [], awards: [] };
+        const [plays, awards] = await Promise.all([
+          scratch.getPlayerHistory(player.id),
+          scratch.getPlayerAwards(player.id),
+        ]);
+        return { identified: true, plays, awards };
+      }),
+
+    // --- Admin ---
+    adminListCampaigns: protectedProcedure.query(async ({ ctx }) => {
+      if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+      return await scratch.listCampaignsAdmin();
+    }),
+
+    adminGetCampaign: protectedProcedure
+      .input(z.object({ id: z.number().int().positive() }))
+      .query(async ({ input, ctx }) => {
+        if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+        return await scratch.getCampaignAdmin(input.id);
+      }),
+
+    adminCreateCampaign: protectedProcedure
+      .input(
+        z.object({
+          name: z.string().trim().min(1).max(255),
+          description: z.string().max(2000).optional(),
+          config: z.object({
+            winningCount: z.number().int().min(1).max(20),
+            playerCount: z.number().int().min(1).max(30),
+            minNumber: z.number().int().min(0).max(999),
+            maxNumber: z.number().int().min(1).max(999),
+            requiredMatches: z.number().int().min(1).max(20),
+          }),
+          winProbabilityBps: z.number().int().min(0).max(10000),
+          dailyPlayLimit: z.number().int().min(0).max(1000).optional(),
+          minAge: z.number().int().min(0).max(120).optional(),
+          countries: z.string().max(255).optional(),
+          termsUrl: z.string().url().max(512).optional(),
+          startsAt: z.coerce.date().optional(),
+          expiresAt: z.coerce.date().optional(),
+        })
+      )
+      .mutation(async ({ input, ctx }) => {
+        if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+        return await scratch.createCampaign(input, {
+          id: ctx.user.id,
+          role: ctx.user.role,
+          ip: getClientIp(ctx.req),
+        });
+      }),
+
+    adminSetStatus: protectedProcedure
+      .input(
+        z.object({
+          id: z.number().int().positive(),
+          status: z.enum(["draft", "active", "paused", "ended"]),
+        })
+      )
+      .mutation(async ({ input, ctx }) => {
+        if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+        return await scratch.setCampaignStatus(input.id, input.status, {
+          id: ctx.user.id,
+          role: ctx.user.role,
+          ip: getClientIp(ctx.req),
+        });
+      }),
+
+    adminCreatePrizeTier: protectedProcedure
+      .input(
+        z.object({
+          campaignId: z.number().int().positive(),
+          name: z.string().trim().min(1).max(255),
+          valueLabel: z.string().trim().min(1).max(255),
+          valueCents: z.number().int().min(0).optional(),
+          requiredMatches: z.number().int().min(1).max(20),
+          totalQty: z.number().int().min(1).max(1_000_000),
+          weight: z.number().int().min(1).max(1000).optional(),
+          sortOrder: z.number().int().optional(),
+        })
+      )
+      .mutation(async ({ input, ctx }) => {
+        if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+        return await scratch.createPrizeTier(input, {
+          id: ctx.user.id,
+          role: ctx.user.role,
+          ip: getClientIp(ctx.req),
+        });
+      }),
+
+    adminAddVouchers: protectedProcedure
+      .input(
+        z.object({
+          prizeTierId: z.number().int().positive(),
+          codes: z.array(z.string().min(1).max(128)).min(1).max(5000),
+        })
+      )
+      .mutation(async ({ input, ctx }) => {
+        if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+        return await scratch.addVoucherCodes(input.prizeTierId, input.codes, {
+          id: ctx.user.id,
+          role: ctx.user.role,
+          ip: getClientIp(ctx.req),
+        });
+      }),
+
+    adminAuditLog: protectedProcedure.query(async ({ ctx }) => {
+      if (ctx.user.role !== "admin") throw new TRPCError({ code: "FORBIDDEN" });
+      return await scratch.listAudit(100);
+    }),
   }),
 
   // Lead procedures

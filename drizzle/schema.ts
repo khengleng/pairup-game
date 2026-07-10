@@ -7,6 +7,7 @@ import {
   timestamp,
   varchar,
   boolean,
+  json,
 } from "drizzle-orm/mysql-core";
 
 /**
@@ -278,3 +279,167 @@ export const appGames = mysqlTable("appGames", {
 
 export type AppGame = typeof appGames.$inferSelect;
 export type InsertAppGame = typeof appGames.$inferInsert;
+
+// ---------------------------------------------------------------------------
+// Scratch-card promotional platform (Phase 1)
+// ---------------------------------------------------------------------------
+
+/**
+ * A scratch-card campaign: one game definition + its rules, schedule and
+ * eligibility. `config` holds the game-type-specific rule parameters (JSON).
+ */
+export const scratchCampaigns = mysqlTable("scratchCampaigns", {
+  id: int("id").autoincrement().primaryKey(),
+  slug: varchar("slug", { length: 80 }).notNull().unique(),
+  name: varchar("name", { length: 255 }).notNull(),
+  description: text("description"),
+  gameType: mysqlEnum("gameType", [
+    "matching_numbers",
+    "matching_symbols",
+    "pattern",
+    "matching_amounts",
+  ]).notNull(),
+  status: mysqlEnum("status", ["draft", "active", "paused", "ended"])
+    .default("draft")
+    .notNull(),
+  /** Game-type rule parameters (see shared/scratch types). */
+  config: json("config").notNull(),
+  /** Win probability in basis points (0–10000 = 0–100%). */
+  winProbabilityBps: int("winProbabilityBps").default(0).notNull(),
+  /** Max plays per player per day; 0 = unlimited. */
+  dailyPlayLimit: int("dailyPlayLimit").default(0).notNull(),
+  /** Minimum age to play; 0 = no gate. */
+  minAge: int("minAge").default(0).notNull(),
+  /** CSV ISO country allowlist; null = all countries. */
+  countries: varchar("countries", { length: 255 }),
+  termsUrl: varchar("termsUrl", { length: 512 }),
+  startsAt: timestamp("startsAt"),
+  expiresAt: timestamp("expiresAt"),
+  createdBy: int("createdBy"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type ScratchCampaign = typeof scratchCampaigns.$inferSelect;
+export type InsertScratchCampaign = typeof scratchCampaigns.$inferInsert;
+
+/**
+ * A prize tier within a campaign, with its own inventory counters. Prizes are
+ * never awarded beyond `totalQty`; reservations use row locking (see db.ts).
+ */
+export const scratchPrizeTiers = mysqlTable("scratchPrizeTiers", {
+  id: int("id").autoincrement().primaryKey(),
+  campaignId: int("campaignId").notNull(),
+  name: varchar("name", { length: 255 }).notNull(),
+  /** Player-facing prize label, e.g. "$10 voucher". */
+  valueLabel: varchar("valueLabel", { length: 255 }).notNull(),
+  /** Numeric value in minor units (cents) for liability reporting. */
+  valueCents: int("valueCents").default(0).notNull(),
+  /** Matches required for this tier (matching_numbers). */
+  requiredMatches: int("requiredMatches").default(0).notNull(),
+  totalQty: int("totalQty").default(0).notNull(),
+  reservedQty: int("reservedQty").default(0).notNull(),
+  claimedQty: int("claimedQty").default(0).notNull(),
+  /** Relative weight when picking among winnable tiers. */
+  weight: int("weight").default(1).notNull(),
+  sortOrder: int("sortOrder").default(0).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export type ScratchPrizeTier = typeof scratchPrizeTiers.$inferSelect;
+export type InsertScratchPrizeTier = typeof scratchPrizeTiers.$inferInsert;
+
+/** Voucher-code inventory for a prize tier. */
+export const scratchVoucherCodes = mysqlTable("scratchVoucherCodes", {
+  id: int("id").autoincrement().primaryKey(),
+  prizeTierId: int("prizeTierId").notNull(),
+  code: varchar("code", { length: 128 }).notNull(),
+  status: mysqlEnum("status", ["available", "reserved", "claimed", "void"])
+    .default("available")
+    .notNull(),
+  /** Session that reserved/claimed this code. */
+  sessionId: int("sessionId"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export type ScratchVoucherCode = typeof scratchVoucherCodes.$inferSelect;
+export type InsertScratchVoucherCode = typeof scratchVoucherCodes.$inferInsert;
+
+/**
+ * A single play. The result is generated + signed server-side at creation
+ * (before scratching); the client only reveals it. `card` is the layout shown,
+ * `outcome` the authoritative result.
+ */
+export const scratchSessions = mysqlTable("scratchSessions", {
+  id: int("id").autoincrement().primaryKey(),
+  campaignId: int("campaignId").notNull(),
+  userId: int("userId"),
+  playerName: varchar("playerName", { length: 255 }),
+  status: mysqlEnum("status", ["created", "completed", "expired"])
+    .default("created")
+    .notNull(),
+  isWinner: boolean("isWinner").default(false).notNull(),
+  prizeTierId: int("prizeTierId"),
+  card: json("card").notNull(),
+  outcome: json("outcome").notNull(),
+  /** Anti-replay nonce + HMAC signature over the result. */
+  nonce: varchar("nonce", { length: 64 }).notNull(),
+  signature: varchar("signature", { length: 128 }).notNull(),
+  ip: varchar("ip", { length: 64 }),
+  deviceHash: varchar("deviceHash", { length: 64 }),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  completedAt: timestamp("completedAt"),
+});
+
+export type ScratchSession = typeof scratchSessions.$inferSelect;
+export type InsertScratchSession = typeof scratchSessions.$inferInsert;
+
+/** A won prize, with its claim workflow status. */
+export const scratchAwards = mysqlTable("scratchAwards", {
+  id: int("id").autoincrement().primaryKey(),
+  sessionId: int("sessionId").notNull(),
+  campaignId: int("campaignId").notNull(),
+  userId: int("userId").notNull(),
+  prizeTierId: int("prizeTierId").notNull(),
+  voucherCodeId: int("voucherCodeId"),
+  claimRef: varchar("claimRef", { length: 32 }).notNull().unique(),
+  status: mysqlEnum("status", [
+    "pending",
+    "verification",
+    "approved",
+    "fulfilled",
+    "rejected",
+    "expired",
+    "cancelled",
+  ])
+    .default("pending")
+    .notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type ScratchAward = typeof scratchAwards.$inferSelect;
+export type InsertScratchAward = typeof scratchAwards.$inferInsert;
+
+/**
+ * Immutable audit trail for sensitive actions. Append-only — never updated or
+ * deleted from the admin portal.
+ */
+export const auditLogs = mysqlTable("auditLogs", {
+  id: int("id").autoincrement().primaryKey(),
+  actorId: int("actorId"),
+  actorRole: varchar("actorRole", { length: 64 }),
+  action: varchar("action", { length: 128 }).notNull(),
+  entity: varchar("entity", { length: 64 }).notNull(),
+  entityId: varchar("entityId", { length: 64 }),
+  before: json("before"),
+  after: json("after"),
+  reason: text("reason"),
+  approvalRef: varchar("approvalRef", { length: 64 }),
+  ip: varchar("ip", { length: 64 }),
+  device: varchar("device", { length: 128 }),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export type AuditLog = typeof auditLogs.$inferSelect;
+export type InsertAuditLog = typeof auditLogs.$inferInsert;

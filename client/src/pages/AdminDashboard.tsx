@@ -210,13 +210,21 @@ export default function AdminDashboard() {
             </div>
             <h1 className="text-2xl font-bold text-gray-900">PairUp Admin</h1>
           </div>
-          <Button
-            variant="outline"
-            onClick={() => setLocation("/")}
-            className="btn-outline"
-          >
-            Back to Home
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button
+              onClick={() => setLocation("/admin/scratch")}
+              className="btn-primary"
+            >
+              Scratch Campaigns
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() => setLocation("/")}
+              className="btn-outline"
+            >
+              Back to Home
+            </Button>
+          </div>
         </div>
 
         {/* Game availability — what the Telegram mini app presents */}

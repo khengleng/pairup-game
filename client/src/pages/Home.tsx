@@ -10,7 +10,7 @@ import { getTelegramInitData, isTelegramMiniApp } from "@/lib/telegram";
 import { GAME_THEMES, GRID_SIZE_OPTIONS, GRID_SIZES } from "@shared/gameConfig";
 import { KhmerIcon } from "@/lib/khmerIcons";
 import type { GameId } from "@shared/games";
-import { Flame, Footprints, ChevronRight, Dice5, Images } from "lucide-react";
+import { Flame, Footprints, ChevronRight, Dice5, Images, Ticket } from "lucide-react";
 import type { ReactNode } from "react";
 
 export default function Home() {
@@ -37,6 +37,7 @@ export default function Home() {
     photos: <Images className="w-6 h-6 text-white" />,
     dice: <Dice5 className="w-6 h-6 text-white" />,
     klaklok: <KhmerIcon id="tiger" className="w-7 h-7" />,
+    scratch: <Ticket className="w-6 h-6 text-white" />,
     walk: <Footprints className="w-6 h-6 text-white" />,
   };
   const themes =
