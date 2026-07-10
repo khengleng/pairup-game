@@ -31,18 +31,31 @@ describe("admin password auth", () => {
     expect(mod.verifyAdminPassword("sup3r-secret!")).toBe(false); // longer
   });
 
-  it("mints a session token that resolves back to an admin user", async () => {
-    const token = await mod.createAdminSessionToken();
-    const user = await mod.getAdminUserFromToken(token);
-    expect(user).not.toBeNull();
-    expect(user?.role).toBe("admin");
-    expect(user?.openId).toBe("admin:password");
+  it("mints a session token that resolves back to a role-bearing session", async () => {
+    const token = await mod.createAdminSessionToken({ adminUserId: 0, role: "super_admin" });
+    const session = await mod.getAdminSession(token);
+    expect(session).not.toBeNull();
+    expect(session?.role).toBe("super_admin");
+    expect(session?.adminUserId).toBe(0);
+  });
+
+  it("carries a specific account id + role", async () => {
+    const token = await mod.createAdminSessionToken({ adminUserId: 7, role: "approver" });
+    const session = await mod.getAdminSession(token);
+    expect(session?.adminUserId).toBe(7);
+    expect(session?.role).toBe("approver");
   });
 
   it("rejects missing or tampered tokens", async () => {
-    expect(await mod.getAdminUserFromToken(undefined)).toBeNull();
-    expect(await mod.getAdminUserFromToken("not-a-jwt")).toBeNull();
-    const token = await mod.createAdminSessionToken();
-    expect(await mod.getAdminUserFromToken(token + "x")).toBeNull();
+    expect(await mod.getAdminSession(undefined)).toBeNull();
+    expect(await mod.getAdminSession("not-a-jwt")).toBeNull();
+    const token = await mod.createAdminSessionToken({ adminUserId: 0, role: "super_admin" });
+    expect(await mod.getAdminSession(token + "x")).toBeNull();
+  });
+
+  it("hashes + verifies account passwords", () => {
+    const hash = mod.hashPassword("correct horse");
+    expect(mod.verifyPassword("correct horse", hash)).toBe(true);
+    expect(mod.verifyPassword("wrong", hash)).toBe(false);
   });
 });
