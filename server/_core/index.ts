@@ -21,6 +21,7 @@ import {
   setupTelegramWebhook,
   startDailyNudgeScheduler,
 } from "../telegram";
+import { getHealth, reportError, startMonitoring } from "../monitoring";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -67,6 +68,14 @@ async function startServer() {
     next();
   });
 
+  // Health / readiness probe (for uptime monitors + Railway).
+  const health = async (_req: express.Request, res: express.Response) => {
+    const h = await getHealth();
+    res.status(h.db === "down" ? 503 : 200).json(h);
+  };
+  app.get("/health", health);
+  app.get("/healthz", health);
+
   // Configure body parser with larger size limit for file uploads
   app.use(express.json({ limit: "50mb" }));
   app.use(express.urlencoded({ limit: "50mb", extended: true }));
@@ -79,6 +88,12 @@ async function startServer() {
     createExpressMiddleware({
       router: appRouter,
       createContext,
+      // Report only genuine server-side (5xx) errors, not client 4xx.
+      onError({ error, path, type }) {
+        if (error.code === "INTERNAL_SERVER_ERROR") {
+          reportError(`trpc:${type}:${path ?? "?"}`, error.cause ?? error);
+        }
+      },
     })
   );
   // development mode uses Vite, production mode uses static files
@@ -87,6 +102,19 @@ async function startServer() {
   } else {
     serveStatic(app);
   }
+
+  // Catch-all Express error handler (must be last).
+  app.use(
+    (
+      err: unknown,
+      req: express.Request,
+      res: express.Response,
+      _next: express.NextFunction
+    ) => {
+      reportError(`express:${req.method} ${req.path}`, err);
+      if (!res.headersSent) res.status(500).json({ error: "Internal server error" });
+    }
+  );
 
   const preferredPort = parseInt(process.env.PORT || "3000");
   const port = await findAvailablePort(preferredPort);
@@ -103,6 +131,8 @@ async function startServer() {
     );
     // Start the daily-nudge scheduler (no-op if the bot isn't configured).
     startDailyNudgeScheduler();
+    // Health probe error capture + scheduled prize-liability alerts.
+    startMonitoring();
   });
 }
 
