@@ -8,6 +8,7 @@ import {
   varchar,
   boolean,
   json,
+  index,
 } from "drizzle-orm/mysql-core";
 
 /**
@@ -63,7 +64,10 @@ export const games = mysqlTable("games", {
   timeSeconds: int("timeSeconds").notNull(),
   completed: boolean("completed").default(false).notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
-});
+}, t => ({
+  userIdx: index("games_user_idx").on(t.userId),
+  createdIdx: index("games_created_idx").on(t.createdAt),
+}));
 
 export type Game = typeof games.$inferSelect;
 export type InsertGame = typeof games.$inferInsert;
@@ -360,7 +364,9 @@ export const scratchPrizeTiers = mysqlTable("scratchPrizeTiers", {
   weight: int("weight").default(1).notNull(),
   sortOrder: int("sortOrder").default(0).notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
-});
+}, t => ({
+  campaignIdx: index("spt_campaign_idx").on(t.campaignId),
+}));
 
 export type ScratchPrizeTier = typeof scratchPrizeTiers.$inferSelect;
 export type InsertScratchPrizeTier = typeof scratchPrizeTiers.$inferInsert;
@@ -376,7 +382,10 @@ export const scratchVoucherCodes = mysqlTable("scratchVoucherCodes", {
   /** Session that reserved/claimed this code. */
   sessionId: int("sessionId"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
-});
+}, t => ({
+  tierStatusIdx: index("svc_tier_status_idx").on(t.prizeTierId, t.status),
+  sessionIdx: index("svc_session_idx").on(t.sessionId),
+}));
 
 export type ScratchVoucherCode = typeof scratchVoucherCodes.$inferSelect;
 export type InsertScratchVoucherCode = typeof scratchVoucherCodes.$inferInsert;
@@ -405,7 +414,13 @@ export const scratchSessions = mysqlTable("scratchSessions", {
   deviceHash: varchar("deviceHash", { length: 64 }),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   completedAt: timestamp("completedAt"),
-});
+}, t => ({
+  campaignIdx: index("ss_campaign_idx").on(t.campaignId),
+  userIdx: index("ss_user_idx").on(t.userId),
+  createdIdx: index("ss_created_idx").on(t.createdAt),
+  deviceIdx: index("ss_device_idx").on(t.deviceHash),
+  ipIdx: index("ss_ip_idx").on(t.ip),
+}));
 
 export type ScratchSession = typeof scratchSessions.$inferSelect;
 export type InsertScratchSession = typeof scratchSessions.$inferInsert;
@@ -432,7 +447,11 @@ export const scratchAwards = mysqlTable("scratchAwards", {
     .notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-});
+}, t => ({
+  statusIdx: index("sa_status_idx").on(t.status),
+  campaignIdx: index("sa_campaign_idx").on(t.campaignId),
+  userIdx: index("sa_user_idx").on(t.userId),
+}));
 
 export type ScratchAward = typeof scratchAwards.$inferSelect;
 export type InsertScratchAward = typeof scratchAwards.$inferInsert;
@@ -455,7 +474,10 @@ export const auditLogs = mysqlTable("auditLogs", {
   ip: varchar("ip", { length: 64 }),
   device: varchar("device", { length: 128 }),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
-});
+}, t => ({
+  createdIdx: index("audit_created_idx").on(t.createdAt),
+  entityIdx: index("audit_entity_idx").on(t.entity, t.entityId),
+}));
 
 export type AuditLog = typeof auditLogs.$inferSelect;
 export type InsertAuditLog = typeof auditLogs.$inferInsert;
@@ -472,7 +494,9 @@ export const termsAcceptances = mysqlTable("termsAcceptances", {
   country: varchar("country", { length: 64 }),
   ip: varchar("ip", { length: 64 }),
   acceptedAt: timestamp("acceptedAt").defaultNow().notNull(),
-});
+}, t => ({
+  userCampaignIdx: index("ta_user_campaign_idx").on(t.userId, t.campaignId),
+}));
 
 export type TermsAcceptance = typeof termsAcceptances.$inferSelect;
 export type InsertTermsAcceptance = typeof termsAcceptances.$inferInsert;
@@ -484,7 +508,9 @@ export const pointsLedger = mysqlTable("pointsLedger", {
   delta: int("delta").notNull(),
   reason: varchar("reason", { length: 120 }).notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
-});
+}, t => ({
+  userIdx: index("pl_user_idx").on(t.userId),
+}));
 
 export type PointsLedger = typeof pointsLedger.$inferSelect;
 
@@ -494,7 +520,9 @@ export const referrals = mysqlTable("referrals", {
   referrerId: int("referrerId").notNull(),
   referredId: int("referredId").notNull().unique(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
-});
+}, t => ({
+  referrerIdx: index("ref_referrer_idx").on(t.referrerId),
+}));
 
 export type Referral = typeof referrals.$inferSelect;
 
