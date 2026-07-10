@@ -1,0 +1,1 @@
+ALTER TABLE `scratchPrizeTiers` ADD `matchKey` varchar(64);

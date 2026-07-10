@@ -27,8 +27,20 @@ import {
   maxPossibleMatches,
   validateMatchingNumbersConfig,
 } from "@shared/scratch/matchingNumbers";
+import {
+  buildGroupCard,
+  validateGroupConfig,
+} from "@shared/scratch/matchingGroup";
+import {
+  buildPatternCard,
+  validatePatternConfig,
+} from "@shared/scratch/pattern";
 import type {
   MatchingNumbersConfig,
+  MatchingGroupConfig,
+  PatternConfig,
+  PatternId,
+  ScratchGameType,
   ScratchOutcome,
 } from "@shared/scratch/types";
 import { getDailyDateKey } from "@shared/gameConfig";
@@ -162,13 +174,128 @@ async function countPlaysToday(userId: number, campaignId: number): Promise<numb
 
 export type PlayResult = {
   sessionId: number;
-  card: { winningNumbers: number[]; playerNumbers: number[] };
+  gameType: ScratchGameType;
+  /** Game-type-specific card payload; the client renders by gameType. */
+  card: unknown;
   isWinner: boolean;
-  matchCount: number;
-  matchedNumbers: number[];
-  requiredMatches: number;
   prizeLabel: string | null;
+  /** Reveal metadata (which cells/pattern/key won). */
+  reveal: {
+    winningCells?: number[];
+    winningKey?: string | null;
+    winningPattern?: PatternId | null;
+    matchCount?: number;
+    matchedNumbers?: number[];
+    requiredMatches?: number;
+  };
 };
+
+/** Validate a campaign's config against its game type. Returns null if valid. */
+export function validateConfig(
+  gameType: ScratchGameType,
+  config: unknown
+): string | null {
+  switch (gameType) {
+    case "matching_numbers":
+      return validateMatchingNumbersConfig(config as MatchingNumbersConfig);
+    case "matching_symbols":
+    case "matching_amounts":
+      return validateGroupConfig(config as MatchingGroupConfig);
+    case "pattern":
+      return validatePatternConfig(config as PatternConfig);
+    default:
+      return "Unknown game type.";
+  }
+}
+
+type ChosenTier = {
+  id: number;
+  requiredMatches: number;
+  matchKey: string | null;
+  valueLabel: string;
+};
+
+/**
+ * Build a card + outcome reflecting a pre-decided result, dispatching by game
+ * type. `chosen` is the winning tier (or null for a loss).
+ */
+function buildCardAndOutcome(
+  gameType: ScratchGameType,
+  config: unknown,
+  chosen: ChosenTier | null
+): { card: unknown; outcome: ScratchOutcome; reveal: PlayResult["reveal"] } {
+  const isWinner = !!chosen;
+  const prizeTierId = chosen?.id ?? null;
+  const rand = secureRandInt;
+
+  if (gameType === "matching_numbers") {
+    const cfg = config as MatchingNumbersConfig;
+    const maxM = maxPossibleMatches(cfg);
+    const target = isWinner
+      ? Math.min(chosen!.requiredMatches, maxM)
+      : secureRandInt(0, Math.max(0, cfg.requiredMatches - 1) + 1);
+    const card = buildMatchingNumbersCard(cfg, target, rand);
+    const matched = computeMatches(card);
+    return {
+      card,
+      outcome: { isWinner, prizeTierId, matchCount: matched.length, matchedNumbers: matched },
+      reveal: {
+        matchCount: matched.length,
+        matchedNumbers: matched,
+        requiredMatches: cfg.requiredMatches,
+      },
+    };
+  }
+
+  if (gameType === "matching_symbols" || gameType === "matching_amounts") {
+    const cfg = config as MatchingGroupConfig;
+    // Amounts: the winning key is the tier's amount (matchKey). Symbols: any.
+    const winningKey =
+      gameType === "matching_amounts" ? chosen?.matchKey ?? undefined : undefined;
+    const target = isWinner
+      ? Math.min(chosen!.requiredMatches || cfg.requiredMatches, cfg.positions)
+      : undefined;
+    const built = buildGroupCard(
+      cfg,
+      { win: isWinner, winningKey, targetMatches: target },
+      rand
+    );
+    return {
+      card: built.card,
+      outcome: {
+        isWinner,
+        prizeTierId,
+        winningCells: built.winningCells,
+        winningKey: built.winningKey,
+        matchCount: built.winningCells.length,
+      },
+      reveal: {
+        winningCells: built.winningCells,
+        winningKey: built.winningKey,
+        matchCount: built.winningCells.length,
+        requiredMatches: cfg.requiredMatches,
+      },
+    };
+  }
+
+  // pattern
+  const cfg = config as PatternConfig;
+  const winningPattern = (chosen?.matchKey as PatternId | undefined) ?? undefined;
+  const built = buildPatternCard(cfg, { win: isWinner, winningPattern }, rand);
+  return {
+    card: built.card,
+    outcome: {
+      isWinner,
+      prizeTierId,
+      winningCells: built.winningCells,
+      winningPattern: built.winningPattern,
+    },
+    reveal: {
+      winningCells: built.winningCells,
+      winningPattern: built.winningPattern,
+    },
+  };
+}
 
 export async function play(params: {
   campaignId: number;
@@ -205,8 +332,8 @@ export async function play(params: {
     }
   }
 
-  const config = asObject<MatchingNumbersConfig>(campaign.config);
-  if (validateMatchingNumbersConfig(config)) {
+  const config = asObject<unknown>(campaign.config);
+  if (validateConfig(campaign.gameType, config)) {
     throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Campaign is misconfigured." });
   }
 
@@ -218,39 +345,36 @@ export async function play(params: {
       .where(eq(scratchPrizeTiers.campaignId, params.campaignId))
       .for("update");
 
-    const winnable: (WinnableTier & { valueLabel: string })[] = tiers
-      .map(t => ({
-        id: t.id,
-        weight: t.weight,
-        requiredMatches: t.requiredMatches,
-        available: t.totalQty - t.reservedQty - t.claimedQty,
-        valueLabel: t.valueLabel,
-      }))
-      .filter(t => t.available > 0);
+    const winnable: (WinnableTier & { valueLabel: string; matchKey: string | null })[] =
+      tiers
+        .map(t => ({
+          id: t.id,
+          weight: t.weight,
+          requiredMatches: t.requiredMatches,
+          available: t.totalQty - t.reservedQty - t.claimedQty,
+          valueLabel: t.valueLabel,
+          matchKey: t.matchKey,
+        }))
+        .filter(t => t.available > 0);
 
     let isWinner = decideWin(campaign.winProbabilityBps) && winnable.length > 0;
     const picked = isWinner ? pickWeightedTier(winnable) : null;
     const chosen = picked ? winnable.find(t => t.id === picked.id) ?? null : null;
     if (!chosen) isWinner = false;
 
-    const maxM = maxPossibleMatches(config);
-    let targetMatches: number;
-    if (isWinner && chosen) {
-      targetMatches = Math.min(chosen.requiredMatches, maxM);
-    } else {
-      // A loss shows fewer than the minimum winning matches (allows near-misses).
-      const cap = Math.max(0, config.requiredMatches - 1);
-      targetMatches = secureRandInt(0, cap + 1);
-    }
-
-    const card = buildMatchingNumbersCard(config, targetMatches, secureRandInt);
-    const matched = computeMatches(card);
-    const outcome: ScratchOutcome = {
-      isWinner,
-      matchCount: matched.length,
-      matchedNumbers: matched,
-      prizeTierId: isWinner && chosen ? chosen.id : null,
-    };
+    const { card, outcome: baseOutcome, reveal } = buildCardAndOutcome(
+      campaign.gameType,
+      config,
+      chosen
+        ? {
+            id: chosen.id,
+            requiredMatches: chosen.requiredMatches,
+            matchKey: chosen.matchKey,
+            valueLabel: chosen.valueLabel,
+          }
+        : null
+    );
+    const outcome: ScratchOutcome = baseOutcome;
     const nonce = generateNonce();
     const signature = signResult(nonce, outcome);
 
@@ -297,12 +421,11 @@ export async function play(params: {
 
     return {
       sessionId,
+      gameType: campaign.gameType,
       card,
       isWinner,
-      matchCount: outcome.matchCount,
-      matchedNumbers: outcome.matchedNumbers,
-      requiredMatches: config.requiredMatches,
       prizeLabel: chosen ? chosen.valueLabel : null,
+      reveal,
     };
   });
 }
@@ -492,7 +615,8 @@ export async function getPlayerAwards(userId: number, limit = 50) {
 export type CreateCampaignInput = {
   name: string;
   description?: string;
-  config: MatchingNumbersConfig;
+  gameType: ScratchGameType;
+  config: unknown;
   winProbabilityBps: number;
   dailyPlayLimit?: number;
   minAge?: number;
@@ -507,7 +631,7 @@ export async function createCampaign(
   actor: { id: number; role: string; ip?: string }
 ) {
   const db = await getDbOrThrow();
-  const configError = validateMatchingNumbersConfig(input.config);
+  const configError = validateConfig(input.gameType, input.config);
   if (configError) {
     throw new TRPCError({ code: "BAD_REQUEST", message: configError });
   }
@@ -524,9 +648,9 @@ export async function createCampaign(
     slug,
     name: input.name,
     description: input.description ?? null,
-    gameType: "matching_numbers",
+    gameType: input.gameType,
     status: "draft",
-    config: input.config,
+    config: input.config as InsertScratchCampaign["config"],
     winProbabilityBps: input.winProbabilityBps,
     dailyPlayLimit: input.dailyPlayLimit ?? 0,
     minAge: input.minAge ?? 0,
@@ -631,7 +755,8 @@ export async function createPrizeTier(
     name: string;
     valueLabel: string;
     valueCents?: number;
-    requiredMatches: number;
+    requiredMatches?: number;
+    matchKey?: string;
     totalQty: number;
     weight?: number;
     sortOrder?: number;
@@ -645,19 +770,49 @@ export async function createPrizeTier(
     .where(eq(scratchCampaigns.id, input.campaignId))
     .limit(1);
   if (!campaign) throw new TRPCError({ code: "NOT_FOUND", message: "Campaign not found." });
-  const config = asObject<MatchingNumbersConfig>(campaign.config);
-  if (input.requiredMatches > maxPossibleMatches(config) || input.requiredMatches < config.requiredMatches) {
-    throw new TRPCError({
-      code: "BAD_REQUEST",
-      message: `Required matches must be between ${config.requiredMatches} and ${maxPossibleMatches(config)}.`,
-    });
+
+  // Per-game-type tier validation.
+  let requiredMatches = input.requiredMatches ?? 0;
+  let matchKey: string | null = input.matchKey ?? null;
+  const gt = campaign.gameType;
+
+  if (gt === "matching_numbers") {
+    const cfg = asObject<MatchingNumbersConfig>(campaign.config);
+    const max = maxPossibleMatches(cfg);
+    if (requiredMatches < cfg.requiredMatches || requiredMatches > max) {
+      throw new TRPCError({ code: "BAD_REQUEST", message: `Required matches must be between ${cfg.requiredMatches} and ${max}.` });
+    }
+    matchKey = null;
+  } else if (gt === "matching_symbols") {
+    const cfg = asObject<MatchingGroupConfig>(campaign.config);
+    if (requiredMatches < cfg.requiredMatches || requiredMatches > cfg.positions) {
+      throw new TRPCError({ code: "BAD_REQUEST", message: `Required matches must be between ${cfg.requiredMatches} and ${cfg.positions}.` });
+    }
+    matchKey = null;
+  } else if (gt === "matching_amounts") {
+    const cfg = asObject<MatchingGroupConfig>(campaign.config);
+    if (!matchKey || !cfg.pool.includes(matchKey)) {
+      throw new TRPCError({ code: "BAD_REQUEST", message: `The winning amount must be one of: ${cfg.pool.join(", ")}.` });
+    }
+    requiredMatches = requiredMatches || cfg.requiredMatches;
+    if (requiredMatches < cfg.requiredMatches || requiredMatches > cfg.positions) {
+      throw new TRPCError({ code: "BAD_REQUEST", message: `Required matches must be between ${cfg.requiredMatches} and ${cfg.positions}.` });
+    }
+  } else if (gt === "pattern") {
+    const cfg = asObject<PatternConfig>(campaign.config);
+    if (!matchKey || !cfg.patterns.includes(matchKey as PatternId)) {
+      throw new TRPCError({ code: "BAD_REQUEST", message: `The winning pattern must be one of: ${cfg.patterns.join(", ")}.` });
+    }
+    requiredMatches = 0;
   }
+
   const res = await db.insert(scratchPrizeTiers).values({
     campaignId: input.campaignId,
     name: input.name,
     valueLabel: input.valueLabel,
     valueCents: input.valueCents ?? 0,
-    requiredMatches: input.requiredMatches,
+    requiredMatches,
+    matchKey,
     totalQty: input.totalQty,
     weight: input.weight ?? 1,
     sortOrder: input.sortOrder ?? 0,
@@ -720,7 +875,7 @@ export async function updateCampaign(
     });
   }
   if (input.config) {
-    const err = validateMatchingNumbersConfig(input.config);
+    const err = validateConfig(before.gameType, input.config);
     if (err) throw new TRPCError({ code: "BAD_REQUEST", message: err });
   }
   const patch: Record<string, unknown> = {};

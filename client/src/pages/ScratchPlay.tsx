@@ -6,17 +6,24 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import ScratchCard from "@/components/ScratchCard";
 import { getTelegramInitData } from "@/lib/telegram";
+import type { ScratchGameType, PatternId } from "@shared/scratch/types";
 import { toast } from "sonner";
 import { Ticket, Sparkles, Copy, Eye } from "lucide-react";
 
 type PlayState = {
   sessionId: number;
-  card: { winningNumbers: number[]; playerNumbers: number[] };
+  gameType: ScratchGameType;
+  card: any;
   isWinner: boolean;
-  matchCount: number;
-  matchedNumbers: number[];
-  requiredMatches: number;
   prizeLabel: string | null;
+  reveal: {
+    winningCells?: number[];
+    winningKey?: string | null;
+    winningPattern?: PatternId | null;
+    matchCount?: number;
+    matchedNumbers?: number[];
+    requiredMatches?: number;
+  };
 };
 
 type Completion = {
@@ -26,6 +33,37 @@ type Completion = {
   voucherCode: string | null;
   status: string | null;
 };
+
+/** A grid of revealed cells; winning indices get the gold highlight. */
+function CellGrid({
+  cells,
+  cols,
+  winning,
+}: {
+  cells: (string | number)[];
+  cols: number;
+  winning: Set<number>;
+}) {
+  return (
+    <div
+      className="grid gap-2 p-4 bg-white"
+      style={{ gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))` }}
+    >
+      {cells.map((c, i) => (
+        <span
+          key={i}
+          className={`aspect-square rounded-lg font-bold flex items-center justify-center text-xl tabular-nums ${
+            winning.has(i)
+              ? "bg-gradient-to-br from-amber-300 to-amber-400 text-amber-900 ring-2 ring-amber-500"
+              : "bg-gray-100 text-gray-700"
+          }`}
+        >
+          {c}
+        </span>
+      ))}
+    </div>
+  );
+}
 
 export default function ScratchPlay() {
   const [, setLocation] = useLocation();
@@ -47,8 +85,6 @@ export default function ScratchPlay() {
   const [forceReveal, setForceReveal] = useState(false);
   const [completion, setCompletion] = useState<Completion | null>(null);
 
-  const winningSet = new Set(play?.card.winningNumbers ?? []);
-
   const handleStart = async () => {
     if (!campaignId) return;
     setPlay(null);
@@ -57,7 +93,7 @@ export default function ScratchPlay() {
     setCompletion(null);
     try {
       const res = await startMutation.mutateAsync({ campaignId, initData });
-      setPlay(res);
+      setPlay(res as PlayState);
     } catch (err: any) {
       toast.error(err?.message || "Couldn't start the game.");
     }
@@ -109,6 +145,63 @@ export default function ScratchPlay() {
     );
   }
 
+  // Build the scratchable board for the current card.
+  const renderBoard = () => {
+    if (!play) return null;
+    const winning = new Set(play.reveal.winningCells ?? []);
+
+    if (play.gameType === "matching_numbers") {
+      const winSet = new Set<number>(play.card.winningNumbers ?? []);
+      const playerNumbers: number[] = play.card.playerNumbers ?? [];
+      const cells = playerNumbers;
+      const winIdx = new Set<number>(
+        playerNumbers.map((n, i) => (winSet.has(n) ? i : -1)).filter(i => i >= 0)
+      );
+      return (
+        <>
+          <div>
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2 text-center">
+              Winning numbers
+            </p>
+            <div className="flex flex-wrap justify-center gap-2">
+              {(play.card.winningNumbers ?? []).map((n: number, i: number) => (
+                <span key={i}
+                  className="w-11 h-11 rounded-lg bg-gradient-to-br from-purple-500 to-purple-600 text-white font-bold flex items-center justify-center tabular-nums">
+                  {n}
+                </span>
+              ))}
+            </div>
+          </div>
+          <ScratchBoard forceReveal={forceReveal} onReveal={handleReveal}
+            label="Your numbers — scratch to reveal">
+            <CellGrid cells={cells} cols={5} winning={winIdx} />
+          </ScratchBoard>
+        </>
+      );
+    }
+
+    if (play.gameType === "matching_symbols" || play.gameType === "matching_amounts") {
+      const cells: string[] = play.card.cells ?? [];
+      const cols = Math.ceil(Math.sqrt(cells.length)) || 3;
+      return (
+        <ScratchBoard forceReveal={forceReveal} onReveal={handleReveal}
+          label="Scratch to reveal">
+          <CellGrid cells={cells} cols={cols} winning={winning} />
+        </ScratchBoard>
+      );
+    }
+
+    // pattern
+    const grid: string[] = play.card.grid ?? [];
+    const size: number = play.card.size ?? Math.sqrt(grid.length);
+    return (
+      <ScratchBoard forceReveal={forceReveal} onReveal={handleReveal}
+        label="Scratch the grid — complete a line to win">
+        <CellGrid cells={grid} cols={size} winning={winning} />
+      </ScratchBoard>
+    );
+  };
+
   return (
     <div className="min-h-screen pairup-gradient py-8">
       <div className="container max-w-xl space-y-6">
@@ -133,14 +226,10 @@ export default function ScratchPlay() {
           {!play ? (
             <div className="text-center space-y-4">
               <p className="text-sm text-gray-600">
-                Match <b>{"any winning number"}</b> on your card to win. Tap below
-                for a fresh card, then scratch to reveal.
+                Tap below for a fresh card, then scratch to reveal your result.
               </p>
-              <Button
-                onClick={handleStart}
-                disabled={startMutation.isPending}
-                className="w-full btn-primary text-lg py-6"
-              >
+              <Button onClick={handleStart} disabled={startMutation.isPending}
+                className="w-full btn-primary text-lg py-6">
                 {startMutation.isPending ? "Dealing…" : "Get a card"}
               </Button>
               {campaign.prizes.length > 0 && (
@@ -150,14 +239,10 @@ export default function ScratchPlay() {
                   </p>
                   <ul className="space-y-1">
                     {campaign.prizes.map((p, i) => (
-                      <li
-                        key={i}
-                        className="flex items-center justify-between text-sm rounded-lg bg-gray-50 px-3 py-2"
-                      >
+                      <li key={i}
+                        className="flex items-center justify-between text-sm rounded-lg bg-gray-50 px-3 py-2">
                         <span className="text-gray-700">{p.name}</span>
-                        <span className="font-semibold text-purple-600">
-                          {p.valueLabel}
-                        </span>
+                        <span className="font-semibold text-purple-600">{p.valueLabel}</span>
                       </li>
                     ))}
                   </ul>
@@ -166,67 +251,16 @@ export default function ScratchPlay() {
             </div>
           ) : (
             <div className="space-y-5">
-              {/* Winning numbers (revealed) */}
-              <div>
-                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2 text-center">
-                  Winning numbers
-                </p>
-                <div className="flex flex-wrap justify-center gap-2">
-                  {play.card.winningNumbers.map((n, i) => (
-                    <span
-                      key={i}
-                      className="w-11 h-11 rounded-lg bg-gradient-to-br from-purple-500 to-purple-600 text-white font-bold flex items-center justify-center tabular-nums"
-                    >
-                      {n}
-                    </span>
-                  ))}
-                </div>
-              </div>
-
-              {/* Player numbers under the scratch layer */}
-              <div>
-                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2 text-center">
-                  Your numbers — scratch to reveal
-                </p>
-                <ScratchCard
-                  className="rounded-xl overflow-hidden border border-purple-200"
-                  coverColor="#B9BEC6"
-                  coverLabel="Scratch here"
-                  threshold={0.5}
-                  forceReveal={forceReveal}
-                  onReveal={handleReveal}
-                >
-                  <div className="grid grid-cols-5 gap-2 p-4 bg-white">
-                    {play.card.playerNumbers.map((n, i) => {
-                      const hit = winningSet.has(n);
-                      return (
-                        <span
-                          key={i}
-                          className={`aspect-square rounded-lg font-bold flex items-center justify-center tabular-nums text-lg ${
-                            hit
-                              ? "bg-gradient-to-br from-amber-300 to-amber-400 text-amber-900 ring-2 ring-amber-500"
-                              : "bg-gray-100 text-gray-700"
-                          }`}
-                        >
-                          {n}
-                        </span>
-                      );
-                    })}
-                  </div>
-                </ScratchCard>
-              </div>
+              {renderBoard()}
 
               {!revealed && (
-                <button
-                  onClick={() => setForceReveal(true)}
-                  className="mx-auto flex items-center gap-2 text-sm font-semibold text-purple-600 underline"
-                >
+                <button onClick={() => setForceReveal(true)}
+                  className="mx-auto flex items-center gap-2 text-sm font-semibold text-purple-600 underline">
                   <Eye className="w-4 h-4" />
                   Reveal result
                 </button>
               )}
 
-              {/* Result */}
               {revealed && (
                 <div className="text-center space-y-4">
                   {completeMutation.isPending && !completion ? (
@@ -237,10 +271,6 @@ export default function ScratchPlay() {
                         <Sparkles className="w-6 h-6" />
                         You won {completion?.prizeLabel ?? play.prizeLabel}!
                       </div>
-                      <p className="text-sm text-gray-600">
-                        {play.matchCount} matching number
-                        {play.matchCount === 1 ? "" : "s"}.
-                      </p>
                       {completion?.voucherCode && (
                         <div className="rounded-lg bg-green-50 border border-green-200 p-4 space-y-2">
                           <p className="text-xs text-gray-500 uppercase tracking-wide">
@@ -250,11 +280,8 @@ export default function ScratchPlay() {
                             <code className="text-lg font-bold text-green-700">
                               {completion.voucherCode}
                             </code>
-                            <button
-                              onClick={() => copyCode(completion.voucherCode!)}
-                              aria-label="Copy code"
-                              className="text-green-600"
-                            >
+                            <button onClick={() => copyCode(completion.voucherCode!)}
+                              aria-label="Copy code" className="text-green-600">
                               <Copy className="w-4 h-4" />
                             </button>
                           </div>
@@ -271,24 +298,13 @@ export default function ScratchPlay() {
                     </div>
                   ) : (
                     <div className="space-y-1">
-                      <p className="text-xl font-bold text-gray-700">
-                        No win this time
-                      </p>
-                      <p className="text-sm text-gray-500">
-                        {play.matchCount > 0
-                          ? `So close — ${play.matchCount} match${
-                              play.matchCount === 1 ? "" : "es"
-                            }, needed ${play.requiredMatches}.`
-                          : "Better luck on the next card!"}
-                      </p>
+                      <p className="text-xl font-bold text-gray-700">No win this time</p>
+                      <p className="text-sm text-gray-500">Better luck on the next card!</p>
                     </div>
                   )}
 
-                  <Button
-                    onClick={handleStart}
-                    disabled={startMutation.isPending}
-                    className="w-full btn-primary"
-                  >
+                  <Button onClick={handleStart} disabled={startMutation.isPending}
+                    className="w-full btn-primary">
                     {startMutation.isPending ? "Dealing…" : "Play again"}
                   </Button>
                 </div>
@@ -299,17 +315,44 @@ export default function ScratchPlay() {
 
         {campaign.termsUrl && (
           <p className="text-center text-xs text-gray-400">
-            <a
-              href={campaign.termsUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="underline"
-            >
+            <a href={campaign.termsUrl} target="_blank" rel="noopener noreferrer"
+              className="underline">
               Terms &amp; conditions apply
             </a>
           </p>
         )}
       </div>
+    </div>
+  );
+}
+
+/** A labelled scratch surface wrapping a board. */
+function ScratchBoard({
+  label,
+  forceReveal,
+  onReveal,
+  children,
+}: {
+  label: string;
+  forceReveal: boolean;
+  onReveal: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <div>
+      <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2 text-center">
+        {label}
+      </p>
+      <ScratchCard
+        className="rounded-xl overflow-hidden border border-purple-200"
+        coverColor="#B9BEC6"
+        coverLabel="Scratch here"
+        threshold={0.5}
+        forceReveal={forceReveal}
+        onReveal={onReveal}
+      >
+        {children}
+      </ScratchCard>
     </div>
   );
 }

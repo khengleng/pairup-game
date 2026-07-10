@@ -900,13 +900,14 @@ export const appRouter = router({
         z.object({
           name: z.string().trim().min(1).max(255),
           description: z.string().max(2000).optional(),
-          config: z.object({
-            winningCount: z.number().int().min(1).max(20),
-            playerCount: z.number().int().min(1).max(30),
-            minNumber: z.number().int().min(0).max(999),
-            maxNumber: z.number().int().min(1).max(999),
-            requiredMatches: z.number().int().min(1).max(20),
-          }),
+          gameType: z.enum([
+            "matching_numbers",
+            "matching_symbols",
+            "pattern",
+            "matching_amounts",
+          ]),
+          // Shape varies by game type; validated in the service.
+          config: z.record(z.string(), z.any()),
           winProbabilityBps: z.number().int().min(0).max(10000),
           dailyPlayLimit: z.number().int().min(0).max(1000).optional(),
           minAge: z.number().int().min(0).max(120).optional(),
@@ -948,7 +949,8 @@ export const appRouter = router({
           name: z.string().trim().min(1).max(255),
           valueLabel: z.string().trim().min(1).max(255),
           valueCents: z.number().int().min(0).optional(),
-          requiredMatches: z.number().int().min(1).max(20),
+          requiredMatches: z.number().int().min(0).max(25).optional(),
+          matchKey: z.string().max(64).optional(),
           totalQty: z.number().int().min(1).max(1_000_000),
           weight: z.number().int().min(1).max(1000).optional(),
           sortOrder: z.number().int().optional(),
@@ -985,15 +987,7 @@ export const appRouter = router({
           id: z.number().int().positive(),
           name: z.string().trim().min(1).max(255).optional(),
           description: z.string().max(2000).optional(),
-          config: z
-            .object({
-              winningCount: z.number().int().min(1).max(20),
-              playerCount: z.number().int().min(1).max(30),
-              minNumber: z.number().int().min(0).max(999),
-              maxNumber: z.number().int().min(1).max(999),
-              requiredMatches: z.number().int().min(1).max(20),
-            })
-            .optional(),
+          config: z.record(z.string(), z.any()).optional(),
           winProbabilityBps: z.number().int().min(0).max(10000).optional(),
           dailyPlayLimit: z.number().int().min(0).max(1000).optional(),
           termsUrl: z.string().url().max(512).optional(),

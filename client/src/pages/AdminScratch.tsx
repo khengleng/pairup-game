@@ -10,8 +10,24 @@ import { Textarea } from "@/components/ui/textarea";
 import AdminNav from "@/components/AdminNav";
 import { toast } from "sonner";
 import { ShieldCheck } from "lucide-react";
+import type { ScratchGameType, PatternId } from "@shared/scratch/types";
 
 const STATUS_ACTIONS = ["draft", "active", "paused", "ended"] as const;
+
+const GAME_TYPE_LABELS: Record<ScratchGameType, string> = {
+  matching_numbers: "Matching Winning Numbers",
+  matching_symbols: "Matching Symbols",
+  matching_amounts: "Matching Prize Amounts",
+  pattern: "Pattern Completion",
+};
+
+const PATTERN_OPTIONS: { id: PatternId; label: string }[] = [
+  { id: "row", label: "Row" },
+  { id: "col", label: "Column" },
+  { id: "diag", label: "Diagonal" },
+  { id: "x", label: "X (both diagonals)" },
+  { id: "corners", label: "Four corners" },
+];
 
 function money(cents: number) {
   return `$${(cents / 100).toFixed(2)}`;
@@ -97,6 +113,7 @@ export default function AdminScratch() {
   const [editingId, setEditingId] = useState<number | null>(null);
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
+  const [gameType, setGameType] = useState<ScratchGameType>("matching_numbers");
   const [winningCount, setWinningCount] = useState(3);
   const [playerCount, setPlayerCount] = useState(5);
   const [minNumber, setMinNumber] = useState(1);
@@ -106,11 +123,29 @@ export default function AdminScratch() {
   const [dailyLimit, setDailyLimit] = useState(3);
   const [expiresAt, setExpiresAt] = useState("");
   const [termsUrl, setTermsUrl] = useState("");
+  // Symbols / amounts (group) + pattern config
+  const [poolText, setPoolText] = useState("🍋, 👑, 💎, 🔔, ⭐, 🍀");
+  const [positions, setPositions] = useState(9);
+  const [groupRequired, setGroupRequired] = useState(3);
+  const [gridSize, setGridSize] = useState(3);
+  const [patternPool, setPatternPool] = useState("★, ●, ▲, ◆");
+  const [patternSet, setPatternSet] = useState<PatternId[]>(["row", "col", "diag"]);
+
+  const parseList = (s: string) => s.split(",").map(x => x.trim()).filter(Boolean);
+
+  const buildConfig = () => {
+    if (gameType === "matching_numbers")
+      return { winningCount, playerCount, minNumber, maxNumber, requiredMatches };
+    if (gameType === "pattern")
+      return { gridSize, pool: parseList(patternPool), patterns: patternSet };
+    return { pool: parseList(poolText), positions, requiredMatches: groupRequired };
+  };
 
   const resetForm = () => {
     setEditingId(null);
     setName("");
     setDescription("");
+    setGameType("matching_numbers");
     setWinningCount(3);
     setPlayerCount(5);
     setMinNumber(1);
@@ -120,33 +155,45 @@ export default function AdminScratch() {
     setDailyLimit(3);
     setExpiresAt("");
     setTermsUrl("");
+    setPoolText("🍋, 👑, 💎, 🔔, ⭐, 🍀");
+    setPositions(9);
+    setGroupRequired(3);
+    setGridSize(3);
+    setPatternPool("★, ●, ▲, ◆");
+    setPatternSet(["row", "col", "diag"]);
   };
 
   const startEdit = (c: {
     id: number;
     name: string;
     description: string | null;
+    gameType: ScratchGameType;
     config: unknown;
     winProbabilityBps: number;
     dailyPlayLimit: number;
     termsUrl: string | null;
     expiresAt: string | Date | null;
   }) => {
-    const cfg = (typeof c.config === "string" ? JSON.parse(c.config) : c.config) as {
-      winningCount: number;
-      playerCount: number;
-      minNumber: number;
-      maxNumber: number;
-      requiredMatches: number;
-    };
+    const cfg = (typeof c.config === "string" ? JSON.parse(c.config) : c.config) as any;
     setEditingId(c.id);
     setName(c.name);
     setDescription(c.description ?? "");
-    setWinningCount(cfg.winningCount);
-    setPlayerCount(cfg.playerCount);
-    setMinNumber(cfg.minNumber);
-    setMaxNumber(cfg.maxNumber);
-    setRequiredMatches(cfg.requiredMatches);
+    setGameType(c.gameType);
+    if (c.gameType === "matching_numbers") {
+      setWinningCount(cfg.winningCount);
+      setPlayerCount(cfg.playerCount);
+      setMinNumber(cfg.minNumber);
+      setMaxNumber(cfg.maxNumber);
+      setRequiredMatches(cfg.requiredMatches);
+    } else if (c.gameType === "pattern") {
+      setGridSize(cfg.gridSize);
+      setPatternPool((cfg.pool ?? []).join(", "));
+      setPatternSet(cfg.patterns ?? []);
+    } else {
+      setPoolText((cfg.pool ?? []).join(", "));
+      setPositions(cfg.positions);
+      setGroupRequired(cfg.requiredMatches);
+    }
     setWinPercent(c.winProbabilityBps / 100);
     setDailyLimit(c.dailyPlayLimit);
     setTermsUrl(c.termsUrl ?? "");
@@ -156,18 +203,23 @@ export default function AdminScratch() {
 
   const submitCampaign = (e: React.FormEvent) => {
     e.preventDefault();
-    const payload = {
+    const common = {
       name,
       description: description || undefined,
-      config: { winningCount, playerCount, minNumber, maxNumber, requiredMatches },
+      config: buildConfig(),
       winProbabilityBps: Math.round(winPercent * 100),
       dailyPlayLimit: dailyLimit,
       termsUrl: termsUrl || undefined,
       expiresAt: expiresAt ? new Date(expiresAt) : undefined,
     };
-    if (editingId) updateCampaign.mutate({ id: editingId, ...payload });
-    else createCampaign.mutate(payload);
+    if (editingId) updateCampaign.mutate({ id: editingId, ...common });
+    else createCampaign.mutate({ gameType, ...common });
   };
+
+  const togglePattern = (p: PatternId) =>
+    setPatternSet(prev =>
+      prev.includes(p) ? prev.filter(x => x !== p) : [...prev, p]
+    );
 
   const confirmSetStatus = (
     c: { id: number; name: string },
@@ -214,8 +266,8 @@ export default function AdminScratch() {
               {editingId ? "Edit Draft Campaign" : "New Campaign"}
             </h3>
             <p className="text-sm text-gray-600 mb-4">
-              Matching Winning Numbers. Created as a draft — add prizes, then set
-              it Active.
+              {GAME_TYPE_LABELS[gameType]}. Created as a draft — add prizes, then
+              set it Active.
             </p>
             <form onSubmit={submitCampaign} className="space-y-4">
               <div>
@@ -227,37 +279,116 @@ export default function AdminScratch() {
                 <Label htmlFor="cdesc">Description</Label>
                 <Textarea id="cdesc" value={description} rows={2}
                   onChange={e => setDescription(e.target.value)}
-                  placeholder="Scratch to match a winning number and win vouchers!" />
+                  placeholder="Scratch to match and win vouchers!" />
               </div>
-              <div className="grid grid-cols-3 gap-3">
-                <div>
-                  <Label>Winning #s</Label>
-                  <Input type="number" min={1} max={20} value={winningCount}
-                    onChange={e => setWinningCount(+e.target.value)} />
-                </div>
-                <div>
-                  <Label>Player #s</Label>
-                  <Input type="number" min={1} max={30} value={playerCount}
-                    onChange={e => setPlayerCount(+e.target.value)} />
-                </div>
-                <div>
-                  <Label>Match to win</Label>
-                  <Input type="number" min={1} max={20} value={requiredMatches}
-                    onChange={e => setRequiredMatches(+e.target.value)} />
-                </div>
+              <div>
+                <Label htmlFor="cgame">Game type</Label>
+                <select
+                  id="cgame"
+                  value={gameType}
+                  disabled={!!editingId}
+                  onChange={e => setGameType(e.target.value as ScratchGameType)}
+                  className="w-full h-9 rounded-md border border-gray-300 bg-white px-3 text-sm disabled:opacity-60"
+                >
+                  {Object.entries(GAME_TYPE_LABELS).map(([id, label]) => (
+                    <option key={id} value={id}>{label}</option>
+                  ))}
+                </select>
+                {editingId && (
+                  <p className="text-xs text-gray-400 mt-1">Game type can't be changed after creation.</p>
+                )}
               </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <Label>Min number</Label>
-                  <Input type="number" value={minNumber}
-                    onChange={e => setMinNumber(+e.target.value)} />
-                </div>
-                <div>
-                  <Label>Max number</Label>
-                  <Input type="number" value={maxNumber}
-                    onChange={e => setMaxNumber(+e.target.value)} />
-                </div>
-              </div>
+
+              {gameType === "matching_numbers" && (
+                <>
+                  <div className="grid grid-cols-3 gap-3">
+                    <div>
+                      <Label>Winning #s</Label>
+                      <Input type="number" min={1} max={20} value={winningCount}
+                        onChange={e => setWinningCount(+e.target.value)} />
+                    </div>
+                    <div>
+                      <Label>Player #s</Label>
+                      <Input type="number" min={1} max={30} value={playerCount}
+                        onChange={e => setPlayerCount(+e.target.value)} />
+                    </div>
+                    <div>
+                      <Label>Match to win</Label>
+                      <Input type="number" min={1} max={20} value={requiredMatches}
+                        onChange={e => setRequiredMatches(+e.target.value)} />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <Label>Min number</Label>
+                      <Input type="number" value={minNumber}
+                        onChange={e => setMinNumber(+e.target.value)} />
+                    </div>
+                    <div>
+                      <Label>Max number</Label>
+                      <Input type="number" value={maxNumber}
+                        onChange={e => setMaxNumber(+e.target.value)} />
+                    </div>
+                  </div>
+                </>
+              )}
+
+              {(gameType === "matching_symbols" || gameType === "matching_amounts") && (
+                <>
+                  <div>
+                    <Label>
+                      {gameType === "matching_amounts" ? "Amounts" : "Symbols"} (comma-separated)
+                    </Label>
+                    <Input value={poolText} onChange={e => setPoolText(e.target.value)}
+                      placeholder={gameType === "matching_amounts" ? "$2, $5, $10, $20" : "🍋, 👑, 💎, 🔔, ⭐, 🍀"} />
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <Label>Scratch positions</Label>
+                      <Input type="number" min={3} max={25} value={positions}
+                        onChange={e => setPositions(+e.target.value)} />
+                    </div>
+                    <div>
+                      <Label>Match to win</Label>
+                      <Input type="number" min={2} max={positions} value={groupRequired}
+                        onChange={e => setGroupRequired(+e.target.value)} />
+                    </div>
+                  </div>
+                </>
+              )}
+
+              {gameType === "pattern" && (
+                <>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <Label>Grid size</Label>
+                      <Input type="number" min={3} max={5} value={gridSize}
+                        onChange={e => setGridSize(+e.target.value)} />
+                    </div>
+                    <div>
+                      <Label>Symbols (comma-separated)</Label>
+                      <Input value={patternPool} onChange={e => setPatternPool(e.target.value)}
+                        placeholder="★, ●, ▲, ◆" />
+                    </div>
+                  </div>
+                  <div>
+                    <Label>Winning patterns</Label>
+                    <div className="flex flex-wrap gap-2 mt-1">
+                      {PATTERN_OPTIONS.map(p => (
+                        <button key={p.id} type="button"
+                          onClick={() => togglePattern(p.id)}
+                          className={`px-3 py-1.5 rounded-lg text-sm font-medium border ${
+                            patternSet.includes(p.id)
+                              ? "bg-purple-600 text-white border-purple-600"
+                              : "bg-white text-gray-600 border-gray-300"
+                          }`}>
+                          {p.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </>
+              )}
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <Label>Win chance (%)</Label>
@@ -427,8 +558,13 @@ export default function AdminScratch() {
                         {t.name} · <span className="text-purple-600">{t.valueLabel}</span>
                       </p>
                       <p className="text-xs text-gray-500">
-                        needs {t.requiredMatches} matches · weight {t.weight} ·{" "}
-                        {t.remaining}/{t.totalQty} left · vouchers {t.voucherAvailable}/{t.voucherTotal}
+                        {detail.campaign.gameType === "pattern"
+                          ? `pattern ${t.matchKey ?? "—"}`
+                          : detail.campaign.gameType === "matching_amounts"
+                            ? `${t.matchKey ?? "—"} ×${t.requiredMatches}`
+                            : `needs ${t.requiredMatches} matches`}{" "}
+                        · weight {t.weight} · {t.remaining}/{t.totalQty} left ·
+                        vouchers {t.voucherAvailable}/{t.voucherTotal}
                       </p>
                     </div>
                     <div className="flex items-center gap-2">
@@ -455,21 +591,36 @@ export default function AdminScratch() {
             </div>
 
             {(() => {
+              const gt = detail.campaign.gameType as ScratchGameType;
               const cfg = (typeof detail.campaign.config === "string"
                 ? JSON.parse(detail.campaign.config)
-                : detail.campaign.config) as {
-                winningCount: number;
-                playerCount: number;
-                requiredMatches: number;
-              };
-              const minMatches = cfg.requiredMatches;
-              const maxMatches = Math.min(cfg.winningCount, cfg.playerCount);
+                : detail.campaign.config) as any;
+              let minMatches = 1;
+              let maxMatches = 1;
+              let amountOptions: string[] = [];
+              let patternOptions: PatternId[] = [];
+              if (gt === "matching_numbers") {
+                minMatches = cfg.requiredMatches;
+                maxMatches = Math.min(cfg.winningCount, cfg.playerCount);
+              } else if (gt === "matching_symbols") {
+                minMatches = cfg.requiredMatches;
+                maxMatches = cfg.positions;
+              } else if (gt === "matching_amounts") {
+                minMatches = cfg.requiredMatches;
+                maxMatches = cfg.positions;
+                amountOptions = cfg.pool ?? [];
+              } else if (gt === "pattern") {
+                patternOptions = cfg.patterns ?? [];
+              }
               return (
                 <AddTier
                   key={detail.campaign.id}
                   campaignId={detail.campaign.id}
+                  gameType={gt}
                   minMatches={minMatches}
                   maxMatches={maxMatches}
+                  amountOptions={amountOptions}
+                  patternOptions={patternOptions}
                   onAdd={input => createTier.mutate(input)}
                   pending={createTier.isPending}
                 />
@@ -520,33 +671,47 @@ export default function AdminScratch() {
 
 function AddTier({
   campaignId,
+  gameType,
   minMatches,
   maxMatches,
+  amountOptions,
+  patternOptions,
   onAdd,
   pending,
 }: {
   campaignId: number;
+  gameType: ScratchGameType;
   minMatches: number;
   maxMatches: number;
+  amountOptions: string[];
+  patternOptions: PatternId[];
   onAdd: (input: {
     campaignId: number;
     name: string;
     valueLabel: string;
     valueCents: number;
-    requiredMatches: number;
+    requiredMatches?: number;
+    matchKey?: string;
     totalQty: number;
     weight: number;
   }) => void;
   pending: boolean;
 }) {
+  const needsMatches = gameType !== "pattern";
+  const needsAmount = gameType === "matching_amounts";
+  const needsPattern = gameType === "pattern";
+
   const [name, setName] = useState("");
   const [valueLabel, setValueLabel] = useState("");
   const [valueDollars, setValueDollars] = useState(10);
   const [requiredMatches, setRequiredMatches] = useState(minMatches);
   const [totalQty, setTotalQty] = useState(50);
   const [weight, setWeight] = useState(1);
+  const [matchKey, setMatchKey] = useState(
+    needsAmount ? amountOptions[0] ?? "" : needsPattern ? patternOptions[0] ?? "" : ""
+  );
   const matchesOutOfRange =
-    requiredMatches < minMatches || requiredMatches > maxMatches;
+    needsMatches && (requiredMatches < minMatches || requiredMatches > maxMatches);
 
   return (
     <form
@@ -558,9 +723,10 @@ function AddTier({
           name,
           valueLabel,
           valueCents: Math.round(valueDollars * 100),
-          requiredMatches,
           totalQty,
           weight,
+          ...(needsMatches ? { requiredMatches } : {}),
+          ...(needsAmount || needsPattern ? { matchKey } : {}),
         });
         setName("");
         setValueLabel("");
@@ -578,17 +744,33 @@ function AddTier({
         <Label>Value $</Label>
         <Input type="number" min={0} step="0.01" value={valueDollars} onChange={e => setValueDollars(+e.target.value)} />
       </div>
-      <div>
-        <Label>Matches</Label>
-        <Input
-          type="number"
-          min={minMatches}
-          max={maxMatches}
-          value={requiredMatches}
-          onChange={e => setRequiredMatches(+e.target.value)}
-          className={matchesOutOfRange ? "border-red-400" : ""}
-        />
-      </div>
+
+      {needsAmount && (
+        <div>
+          <Label>Winning amount</Label>
+          <select value={matchKey} onChange={e => setMatchKey(e.target.value)}
+            className="w-full h-9 rounded-md border border-gray-300 bg-white px-2 text-sm">
+            {amountOptions.map(a => <option key={a} value={a}>{a}</option>)}
+          </select>
+        </div>
+      )}
+      {needsPattern && (
+        <div>
+          <Label>Winning pattern</Label>
+          <select value={matchKey} onChange={e => setMatchKey(e.target.value)}
+            className="w-full h-9 rounded-md border border-gray-300 bg-white px-2 text-sm">
+            {patternOptions.map(p => <option key={p} value={p}>{p}</option>)}
+          </select>
+        </div>
+      )}
+      {needsMatches && (
+        <div>
+          <Label>Matches</Label>
+          <Input type="number" min={minMatches} max={maxMatches} value={requiredMatches}
+            onChange={e => setRequiredMatches(+e.target.value)}
+            className={matchesOutOfRange ? "border-red-400" : ""} />
+        </div>
+      )}
       <div>
         <Label>Qty</Label>
         <Input type="number" min={1} value={totalQty} onChange={e => setTotalQty(+e.target.value)} />
@@ -598,16 +780,18 @@ function AddTier({
         <Input type="number" min={1} value={weight} onChange={e => setWeight(+e.target.value)} />
       </div>
       <div className="sm:col-span-6 space-y-2">
-        <p className="text-xs text-gray-500">
-          Matches to win must be{" "}
-          <b>
-            {minMatches === maxMatches
-              ? minMatches
-              : `${minMatches}–${maxMatches}`}
-          </b>{" "}
-          for this campaign (set by its winning/player number counts). More
-          matches = a rarer, higher tier.
-        </p>
+        {needsMatches && (
+          <p className="text-xs text-gray-500">
+            Matches to win must be{" "}
+            <b>{minMatches === maxMatches ? minMatches : `${minMatches}–${maxMatches}`}</b>{" "}
+            for this campaign. More matches = a rarer, higher tier.
+          </p>
+        )}
+        {needsPattern && (
+          <p className="text-xs text-gray-500">
+            Each tier maps a winning pattern to a prize. Add one tier per pattern.
+          </p>
+        )}
         <Button type="submit" disabled={pending || matchesOutOfRange} className="btn-primary">
           {pending ? "Adding…" : "Add prize tier"}
         </Button>

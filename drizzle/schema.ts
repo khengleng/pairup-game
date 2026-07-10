@@ -335,8 +335,13 @@ export const scratchPrizeTiers = mysqlTable("scratchPrizeTiers", {
   valueLabel: varchar("valueLabel", { length: 255 }).notNull(),
   /** Numeric value in minor units (cents) for liability reporting. */
   valueCents: int("valueCents").default(0).notNull(),
-  /** Matches required for this tier (matching_numbers). */
+  /** Matches required for this tier (matching_numbers / symbols / amounts). */
   requiredMatches: int("requiredMatches").default(0).notNull(),
+  /**
+   * Game-type-specific win key: the amount label (matching_amounts) or the
+   * pattern id (pattern). Null/unused for numbers & symbols.
+   */
+  matchKey: varchar("matchKey", { length: 64 }),
   totalQty: int("totalQty").default(0).notNull(),
   reservedQty: int("reservedQty").default(0).notNull(),
   claimedQty: int("claimedQty").default(0).notNull(),
