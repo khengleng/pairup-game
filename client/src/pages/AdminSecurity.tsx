@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
 import { ShieldCheck, Copy } from "lucide-react";
+import { QRCodeSVG } from "qrcode.react";
 
 export default function AdminSecurity() {
   const utils = trpc.useUtils();
@@ -66,11 +67,16 @@ export default function AdminSecurity() {
         ) : enroll ? (
           <div className="mt-3 space-y-4">
             <p className="text-sm text-gray-600">
-              Add this account to an authenticator app (Google Authenticator, Authy…), then
-              enter the 6-digit code to confirm.
+              Scan this QR code with Google Authenticator (or Authy), then enter the
+              6-digit code to confirm.
             </p>
+            <div className="flex justify-center">
+              <div className="rounded-xl bg-white p-4 border border-gray-200 shadow-sm">
+                <QRCodeSVG value={enroll.otpauthUri} size={192} level="M" includeMargin={false} />
+              </div>
+            </div>
             <div>
-              <Label>Secret key (manual entry)</Label>
+              <Label>Can't scan? Enter this key manually</Label>
               <div className="flex items-center gap-2">
                 <code className="flex-1 text-sm bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 break-all">
                   {enroll.secret}
